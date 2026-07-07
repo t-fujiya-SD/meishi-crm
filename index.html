@@ -70,6 +70,10 @@
   .days.ok{background:var(--chip); color:var(--sub)}
   .empty{text-align:center; color:var(--sub); padding:30px 16px; font-size:14px}
   .empty .big{font-size:32px; margin-bottom:6px}
+  .sqitem{display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid var(--line)}
+  .sqitem:last-child{border-bottom:none}
+  .sqitem.due{background:#fff7f0}
+  .sqbtns{display:flex; gap:6px; flex-wrap:wrap; flex:none}
 
   /* list */
   .toolbar{display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap}
@@ -151,6 +155,15 @@
   .spin.dark{border-color:rgba(47,125,91,.3);border-top-color:var(--brand)}
   @keyframes sp{to{transform:rotate(360deg)}}
   .muted{color:var(--sub); font-size:13px}
+  code{background:var(--chip); padding:1px 5px; border-radius:5px; font-size:12px}
+  .tplrow{border:1px solid var(--line); border-radius:10px; padding:11px; margin-bottom:10px; background:var(--card)}
+  .tplrow .tpltop{display:flex; align-items:center; gap:8px; margin-bottom:7px}
+  .tplrow .tpltop input{flex:1; border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:14px; font-weight:700}
+  .tplrow .chn{font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; flex:none}
+  .tplrow .chn.email{background:#e8f0fb; color:#2c5aa0}
+  .tplrow .chn.line{background:#e6f6ec; color:#1f9d55}
+  .tplrow input.tsubj,.tplrow textarea.tbody{width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:14px; font-family:inherit; margin-top:6px; outline:none}
+  .tplrow textarea.tbody{min-height:80px; resize:vertical}
   .warn{background:var(--warn-bg); border:1px solid #f0dcc0; color:var(--warn-ink); padding:11px 13px; border-radius:10px; font-size:13px}
   a.lnk{color:var(--brand); font-weight:600}
   .center{display:grid; place-items:center; gap:6px; padding:24px}
@@ -169,6 +182,9 @@
   <section class="view active" id="v-home">
     <div class="stats" id="stats"></div>
     <div id="personaBreak"></div>
+
+    <h2 class="sec" id="sqHead" style="display:none">📤 送信予約</h2>
+    <div class="card" id="sendQueue" style="display:none"></div>
 
     <h2 class="sec">📡 ごぶさたレーダー（連絡したい順）</h2>
     <div class="card" id="radar"></div>
@@ -243,6 +259,17 @@
       <p class="muted" style="margin-top:10px">名刺交換のたびに「どの立場で配ったか」を記録・絞り込みでき、AIフォロー下書きの署名もその立場のプロフィールURLに自動で切り替わります。</p>
     </div>
 
+    <h2 class="sec">✉️ 送信テンプレート</h2>
+    <div class="card pad">
+      <div id="tplList"></div>
+      <div style="display:flex;gap:8px;margin:2px 0 12px;flex-wrap:wrap">
+        <button class="btn ghost sm" onclick="addTemplate('email')">＋ メールを追加</button>
+        <button class="btn ghost sm" onclick="addTemplate('line')">＋ LINEを追加</button>
+      </div>
+      <button class="btn primary" id="btnSaveTpl">保存</button>
+      <p class="muted" style="margin-top:10px">差し込みタグ: <code>{氏名}</code> <code>{会社}</code> <code>{役職}</code> <code>{立場}</code> <code>{自分名}</code> <code>{プロフィールURL}</code> <code>{日付}</code> は送信時に自動で置換されます。</p>
+    </div>
+
     <h2 class="sec">💾 データ</h2>
     <div class="card pad">
       <div class="quick">
@@ -306,6 +333,21 @@ function normalizeSettings(){
   const s=db.settings=db.settings||{};
   if(s.apiKey==null)s.apiKey=""; if(!s.model)s.model="claude-opus-4-8"; if(s.myName==null)s.myName="";
   if(!Array.isArray(s.myCards))s.myCards=["VRtrade","Globridge","旬彩坊","ジャパンダイニング","スパイシーデバイス","eff"].map(l=>({id:uid(),label:l,prairie:""}));
+  if(!Array.isArray(s.templates))s.templates=[
+    {id:uid(),name:"お礼＋プロフィール",channel:"email",subject:"本日はありがとうございました（{自分名}）",
+     body:"{氏名}様\n\n本日はお名刺を交換いただきありがとうございました。{自分名}です。\n今後ともどうぞよろしくお願いいたします。\n\nよろしければ私のプロフィールもご覧ください。\n▼プロフィール\n{プロフィールURL}"},
+    {id:uid(),name:"後日フォロー",channel:"email",subject:"先日はありがとうございました（{自分名}）",
+     body:"{氏名}様\n\n先日は{会社}にてお時間をいただきありがとうございました。{自分名}です。\n改めてご挨拶させてください。\n\n▼プロフィール\n{プロフィールURL}"},
+    {id:uid(),name:"LINEお礼",channel:"line",subject:"",
+     body:"{氏名}さん、本日はありがとうございました！{自分名}です。\nよろしければプロフィールもどうぞ→ {プロフィールURL}"}
+  ];
+  if(!Array.isArray(db.scheduled))db.scheduled=[];
+}
+function templatesFor(ch){return (db.settings.templates||[]).filter(t=>t.channel===ch);}
+function fillTemplate(strv,c){
+  const persona=c.persona||"";const pc=personaByLabel(persona);
+  const map={"{氏名}":c.name||"","{会社}":c.company||"","{役職}":c.title||"","{立場}":persona,"{自分名}":db.settings.myName||"","{プロフィールURL}":(pc&&pc.prairie)||"","{日付}":todayStr()};
+  return String(strv||"").replace(/\{氏名\}|\{会社\}|\{役職\}|\{立場\}|\{自分名\}|\{プロフィールURL\}|\{日付\}/g,m=>map[m]);
 }
 function personaCards(){return db.settings.myCards||[];}
 function personaLabels(){return personaCards().map(c=>c.label).filter(Boolean);}
@@ -342,6 +384,10 @@ document.addEventListener("click",e=>{
   const rm=e.target.closest("[data-rmtag]"); if(rm){removeTag(rm.dataset.rmtag);return;}
   const dtp=e.target.closest("[data-deltp]"); if(dtp){delTP(dtp.dataset.deltp);return;}
   const dp=e.target.closest("[data-delp]"); if(dp){deletePersona(dp.dataset.delp);return;}
+  const ss=e.target.closest("[data-schsend]"); if(ss){sendScheduled(ss.dataset.schsend);return;}
+  const si=e.target.closest("[data-schics]"); if(si){icsScheduled(si.dataset.schics);return;}
+  const sx=e.target.closest("[data-schdel]"); if(sx){delScheduled(sx.dataset.schdel);return;}
+  const dt2=e.target.closest("[data-deltpl]"); if(dt2){deleteTemplate(dt2.dataset.deltpl);return;}
 });
 document.addEventListener("change",e=>{
   const tg=e.target.closest("[data-toggletp]"); if(tg){toggleTP(tg.dataset.toggletp);return;}
@@ -359,6 +405,7 @@ function daysLabel(d){if(d==null)return"未接点";if(d===0)return"今日";retur
 
 /* ============ dashboard ============ */
 function renderHome(){
+  renderSendQueue();
   const cs=db.contacts;
   const withTp=cs.filter(c=>tpCount(c)>0).length;
   const totalTp=cs.reduce((s,c)=>s+tpCount(c),0);
@@ -416,6 +463,44 @@ function renderHome(){
   }
 }
 function doneTodo(cid,tid){const c=contactById(cid);const t=(c.touchpoints||[]).find(x=>x.id===tid);if(t){t.done=true;save();renderHome();toast("完了にしました");}}
+function nowISO(){const d=new Date();const p=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());}
+function renderSendQueue(){
+  const head=document.getElementById("sqHead"),el=document.getElementById("sendQueue");
+  if(!el)return;
+  const items=(db.scheduled||[]).filter(x=>!x.done).map(x=>({x,c:contactById(x.contactId)})).filter(o=>o.c).sort((a,b)=>(a.x.at||"").localeCompare(b.x.at||""));
+  if(!items.length){head.style.display="none";el.style.display="none";el.innerHTML="";return;}
+  const now=nowISO();
+  head.style.display="block";el.style.display="block";
+  el.innerHTML=items.map(({x,c})=>{
+    const due=(x.at||"")<=now;
+    const chLabel=x.channel==="line"?"LINE":"メール";
+    const when=(x.at||"").replace("T"," ");
+    return `<div class="sqitem ${due?"due":""}">
+      <div class="avatar">${esc(initials(c))}</div>
+      <div class="grow"><div class="nm">${esc(c.name||c.company||"連絡先")}</div>
+        <div class="cm">${esc(chLabel)}${due?" · <b style='color:var(--danger)'>送信待ち</b>":" · "+esc(when)}</div></div>
+      <div class="sqbtns">
+        <button class="btn sm primary" data-schsend="${esc(x.id)}">${due?"今送る":"送る"}</button>
+        <button class="btn sm" data-schics="${esc(x.id)}" title="カレンダー登録">📅</button>
+        <button class="btn sm" data-schdel="${esc(x.id)}">✕</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+function schById(id){return (db.scheduled||[]).find(x=>x.id===id);}
+function sendScheduled(id){const x=schById(id);if(!x)return;const c=contactById(x.contactId);if(!c){toast("連絡先が見つかりません");return;}
+  if(x.channel==="email")openMailto((c.email||"").trim(),x.subject,x.body); else openLine(x.body);
+  toast(x.channel==="email"?"メールアプリを開きました":"本文コピー＆LINEを開きました");}
+function delScheduled(id){db.scheduled=(db.scheduled||[]).filter(x=>x.id!==id);save();renderHome();}
+function icsScheduled(id){const x=schById(id);if(!x)return;const c=contactById(x.contactId);
+  const title=(c?(c.name||c.company||"連絡先"):"連絡先")+" にフォロー送信";
+  downloadICS(title,x.at,(x.subject?x.subject+"\n\n":"")+x.body);}
+function downloadICS(title,at,desc){
+  const dt=(at||"").replace(/[-:]/g,"")+"00";
+  const e2=v=>String(v||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n");
+  const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//meishi-crm//JP","BEGIN:VEVENT","UID:"+uid()+"@meishi-crm","DTSTART:"+dt,"DURATION:PT15M","SUMMARY:"+e2(title),"DESCRIPTION:"+e2(desc),"BEGIN:VALARM","TRIGGER:PT0M","ACTION:DISPLAY","DESCRIPTION:"+e2(title),"END:VALARM","END:VEVENT","END:VCALENDAR"].join("\r\n");
+  download("follow_"+dt+".ics",ics,"text/calendar");
+}
 
 /* ============ list ============ */
 let filterCat="", filterPersona="", query="";
@@ -531,21 +616,35 @@ function renderModal(){
     </div>
 
     <div class="card pad" style="margin-bottom:12px">
-      <div style="font-weight:700;margin-bottom:6px">🤖 AIフォロー下書き</div>
-      <p class="muted" style="margin-top:0">相手情報と接点履歴から、連絡文の下書きを作ります。</p>
+      <div style="font-weight:700;margin-bottom:8px">📤 フォロー送信（プロフィールを送る）</div>
       <div class="row2">
-        <div class="field" style="margin:0"><label>目的</label><select id="aiPurpose">
-          <option>ごあいさつ・お礼</option><option>近況伺い（ごぶさた）</option><option>再訪・面談の提案</option><option>紹介のお願い</option></select></div>
-        <div class="field" style="margin:0"><label>手段</label><select id="aiChannel"><option>LINE</option><option>メール</option></select></div>
+        <div class="field" style="margin:0"><label>手段</label><select id="sendChannel" onchange="onSendChannel()"><option value="email">メール</option><option value="line">LINE</option></select></div>
+        <div class="field" style="margin:0"><label>テンプレート</label><select id="sendTemplate" onchange="applyTemplate()"></select></div>
       </div>
-      <button class="btn sm" style="margin-top:8px" onclick="aiDraft()">下書きを作る</button>
-      <div id="aiDraftBox"></div>
+      <div class="field" id="subjWrap" style="margin-top:8px"><label>件名</label><input id="sendSubject"></div>
+      <div class="field"><label>本文</label><textarea id="sendBody" style="min-height:130px"></textarea></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn sm" onclick="aiRefine()">🤖 AIで整える</button>
+        <span style="flex:1"></span>
+        <button class="btn sm" onclick="applyTemplate()">↺ テンプレ再適用</button>
+        <button class="btn primary sm" id="sendBtn" onclick="doSend()">✉️ メールで送る</button>
+      </div>
+      <div id="sendMsg"></div>
+      <hr class="d">
+      <div style="font-weight:700;margin-bottom:6px">⏰ 送信予約（リマインド式）</div>
+      <div class="row2">
+        <div class="field" style="margin:0"><label>日付</label><input id="schDate" type="date"></div>
+        <div class="field" style="margin:0"><label>時刻</label><input id="schTime" type="time" value="09:00"></div>
+      </div>
+      <button class="btn sm" style="margin-top:8px" onclick="scheduleSend()">＋ 送信予約に追加</button>
+      <p class="muted" style="margin-top:6px">予約日時に「今日」画面へ送信待ちで出ます（自動送信ではなく、ワンタップ送信のリマインド）。</p>
     </div>
 
     <button class="btn danger" style="width:100%" onclick="deleteContact()">この連絡先を削除</button>
   `;
   curType=TP_TYPES[0];
   renderTPList();
+  initSendCard();
 }
 function renderTPList(){
   const c=contactById(curId);const el=document.getElementById("tpList");if(!el)return;
@@ -754,48 +853,81 @@ async function aiStructure(){
   }catch(e){box.innerHTML=`<div class="warn" style="margin-top:6px">${esc(e.message)}</div>`;}
 }
 
-/* ============ AI: follow-up draft ============ */
-async function aiDraft(){
-  const myId=curId;
-  const c=contactById(curId);const box=document.getElementById("aiDraftBox");
-  const purpose=document.getElementById("aiPurpose").value;
-  const channel=document.getElementById("aiChannel").value;
-  box.innerHTML=`<div class="center"><span class="spin dark"></span><span class="muted">作成中…</span></div>`;
-  const hist=(c.touchpoints||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5)
-    .map(t=>`- ${t.date} ${t.type}: ${t.note||""}${t.nextAction?"（次:"+t.nextAction+"）":""}`).join("\n")||"（接点記録なし）";
-  const lt=lastTouch(c);const sd=staleDays(c);
-  const persona=c.persona||"";
-  const pcard=personaByLabel(persona);
+/* ============ follow-up send ============ */
+function initSendCard(){const sc=document.getElementById("sendChannel");if(!sc)return;sc.value="email";onSendChannel();}
+function populateSendTemplates(ch){
+  const sel=document.getElementById("sendTemplate");if(!sel)return;
+  const list=templatesFor(ch);
+  sel.innerHTML=list.length?list.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join(""):`<option value="">（テンプレなし）</option>`;
+}
+function onSendChannel(){
+  const ch=document.getElementById("sendChannel").value;
+  populateSendTemplates(ch);
+  document.getElementById("subjWrap").style.display=ch==="email"?"block":"none";
+  document.getElementById("sendBtn").textContent=ch==="email"?"✉️ メールで送る":"💬 コピー＆LINE";
+  applyTemplate();
+}
+function applyTemplate(){
+  const c=contactById(curId);if(!c)return;
+  const id=document.getElementById("sendTemplate").value;
+  const t=(db.settings.templates||[]).find(x=>x.id===id);
+  document.getElementById("sendSubject").value=t?fillTemplate(t.subject,c):"";
+  document.getElementById("sendBody").value=t?fillTemplate(t.body,c):"";
+  document.getElementById("sendMsg").innerHTML="";
+}
+async function aiRefine(){
+  const myId=curId;const c=contactById(curId);if(!c)return;
+  const box=document.getElementById("sendMsg");
+  const ch=document.getElementById("sendChannel").value;
+  const cur=document.getElementById("sendBody").value.trim();
+  const persona=c.persona||"";const pc=personaByLabel(persona);const purl=(pc&&pc.prairie)||"";
   const meName=[db.settings.myName,persona?`（${persona}）`:""].filter(Boolean).join("");
-  const me=meName?`差出人は「${meName}」。`:"";
-  const prompt=`あなたは飲食店向けの経営コンサルタントの秘書です。${me}以下の相手に送る「${channel}」の${purpose}メッセージ下書きを、日本語で自然に作ってください。丁寧すぎず、相手が返信しやすい親しみのあるビジネストーン。${channel==="LINE"?"LINE向けに短く2〜4文":"件名＋本文。本文は5〜8文程度"}。宛名は相手の名字＋敬称。末尾の署名やURLは書かないでください（自動で付けます）。出力は本文（と件名）のみ、説明や注釈は不要。
-
-相手:
-- 氏名: ${c.name||"（不明）"}
-- 会社/肩書: ${c.company||""} ${c.title||""}
-- カテゴリ: ${c.category||""}
-${lt?`- 最終接点: ${lt}（${sd}日前）`:"- まだ接点なし"}
+  const hist=(c.touchpoints||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5).map(t=>`- ${t.date} ${t.type}: ${t.note||""}`).join("\n")||"（接点記録なし）";
+  box.innerHTML=`<div class="center"><span class="spin dark"></span><span class="muted">整えています…</span></div>`;
+  const prompt=`あなたは飲食店向けコンサルの秘書です。名刺交換直後のフォロー${ch==="line"?"LINEメッセージ":"メール本文"}を日本語で自然に作ってください。宛名は相手の名字＋敬称。${ch==="line"?"短く2〜4文":"5〜8文程度"}。丁寧すぎず親しみのあるビジネストーン。${cur?`次のたたき台をベースに、意図を保って自然に整えてください：\n---\n${cur}\n---`:"お礼＋自分のプロフィール共有として新規作成。"} 差出人は「${meName||"（未設定）"}」。${purl?`末尾に『▼プロフィール\n${purl}』を必ず入れてください。`:"URL署名は不要。"}出力は本文のみ、件名や注釈・説明は不要。
+相手: ${c.name||""} / ${c.company||""} ${c.title||""}
 これまでの接点:
 ${hist}`;
   try{
-    let txt=(await callClaude([{type:"text",text:prompt}],1200)).trim();
+    const txt=(await callClaude([{type:"text",text:prompt}],1000)).trim();
     if(curId!==myId)return;
-    const purl=pcard&&pcard.prairie?pcard.prairie:"";
-    let sig="";
-    if(meName)sig+=meName;
-    if(purl)sig+=(sig?"\n":"")+"▼プロフィール\n"+purl;
-    if(sig)txt+="\n\n─────\n"+sig;
-    box.innerHTML=`<div class="aibox"><textarea id="draftOut">${esc(txt)}</textarea>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn primary sm" style="flex:1" onclick="copyDraft()">📋 コピー</button>
-        <button class="btn sm" onclick="aiDraft()">作り直す</button>
-      </div></div>`;
+    document.getElementById("sendBody").value=txt;
+    box.innerHTML=`<div class="muted" style="margin-top:6px">✓ AIで整えました。編集して送信できます</div>`;
   }catch(e){box.innerHTML=`<div class="warn" style="margin-top:8px">${esc(e.message)}</div>`;}
 }
-function copyDraft(){const t=document.getElementById("draftOut");t.select();navigator.clipboard?.writeText(t.value);toast("コピーしました");}
+function openMailto(to,subject,body){
+  const a=document.createElement("a");
+  a.href="mailto:"+(to||"").trim()+"?subject="+encodeURIComponent(subject||"")+"&body="+encodeURIComponent(body||"");
+  document.body.appendChild(a);a.click();a.remove();
+}
+function openLine(body){
+  navigator.clipboard&&navigator.clipboard.writeText(body).catch(()=>{});
+  window.open("https://line.me/R/msg/text/?"+encodeURIComponent(body||""),"_blank");
+}
+function doSend(){
+  const c=contactById(curId);if(!c)return;
+  const ch=document.getElementById("sendChannel").value;
+  const body=document.getElementById("sendBody").value;
+  if(!body.trim()){toast("本文が空です");return;}
+  if(ch==="email"){
+    const to=(c.email||"").trim();
+    openMailto(to,document.getElementById("sendSubject").value,body);
+    toast(to?"メールアプリを開きました":"宛先メール未登録：アプリで宛先を入れて送信を");
+  }else{ openLine(body); toast("本文コピー＆LINEを開きました"); }
+}
+function scheduleSend(){
+  const c=contactById(curId);if(!c)return;
+  const date=document.getElementById("schDate").value;
+  const time=document.getElementById("schTime").value||"09:00";
+  if(!date){toast("予約の日付を選んでください");return;}
+  const body=document.getElementById("sendBody").value;
+  if(!body.trim()){toast("本文が空です");return;}
+  db.scheduled.push({id:uid(),contactId:c.id,channel:document.getElementById("sendChannel").value,subject:document.getElementById("sendSubject").value,body,at:date+"T"+time,done:false});
+  if(save())toast("送信予約を追加（今日画面に出ます）");
+}
 
 /* ============ settings ============ */
-function syncSettings(){document.getElementById("apiKey").value=db.settings.apiKey||"";document.getElementById("model").value=db.settings.model||"claude-opus-4-8";document.getElementById("myName").value=db.settings.myName||"";renderPersonas();fillScanPersona();}
+function syncSettings(){document.getElementById("apiKey").value=db.settings.apiKey||"";document.getElementById("model").value=db.settings.model||"claude-opus-4-8";document.getElementById("myName").value=db.settings.myName||"";renderPersonas();fillScanPersona();renderTemplates();}
 function renderPersonas(){
   const el=document.getElementById("personaList");if(!el)return;
   el.innerHTML=personaCards().map(c=>`
@@ -820,6 +952,31 @@ document.getElementById("btnSaveSelf").onclick=()=>{
   db.settings.myCards=db.settings.myCards.map(c=>({id:c.id,label:c.label.trim(),prairie:c.prairie.trim()})).filter(c=>c.label);
   save();renderPersonas();fillScanPersona();toast("保存しました");
 };
+function renderTemplates(){
+  const el=document.getElementById("tplList");if(!el)return;
+  el.innerHTML=(db.settings.templates||[]).map(t=>`
+    <div class="tplrow" data-tid="${esc(t.id)}">
+      <div class="tpltop"><span class="chn ${t.channel==="line"?"line":"email"}">${t.channel==="line"?"LINE":"メール"}</span>
+        <input class="tname" value="${esc(t.name)}" placeholder="テンプレ名">
+        <button class="btn sm danger" data-deltpl="${esc(t.id)}">削除</button></div>
+      ${t.channel==="line"?"":`<input class="tsubj" value="${esc(t.subject||"")}" placeholder="件名">`}
+      <textarea class="tbody" placeholder="本文">${esc(t.body||"")}</textarea>
+    </div>`).join("")||`<p class="muted" style="margin:0 0 8px">テンプレートがありません</p>`;
+}
+function syncTemplatesFromDOM(){
+  db.settings.templates=[...document.querySelectorAll("#tplList .tplrow")].map(row=>{
+    const id=row.dataset.tid;const old=(db.settings.templates||[]).find(t=>t.id===id)||{};
+    const subjEl=row.querySelector(".tsubj");
+    return {id, channel:old.channel||"email", name:row.querySelector(".tname").value, subject:subjEl?subjEl.value:"", body:row.querySelector(".tbody").value};
+  });
+}
+function addTemplate(ch){syncTemplatesFromDOM();db.settings.templates.push({id:uid(),channel:ch,name:ch==="line"?"新規LINE":"新規メール",subject:"",body:""});renderTemplates();}
+function deleteTemplate(id){syncTemplatesFromDOM();db.settings.templates=db.settings.templates.filter(t=>t.id!==id);renderTemplates();}
+document.getElementById("btnSaveTpl").onclick=()=>{
+  syncTemplatesFromDOM();
+  db.settings.templates=db.settings.templates.map(t=>({...t,name:(t.name||"").trim()||"（無題）"}));
+  save();renderTemplates();toast("保存しました");
+};
 document.getElementById("btnDelKey").onclick=()=>{if(!confirm("APIキーを削除しますか？"))return;db.settings.apiKey="";save();syncSettings();toast("削除しました");};
 document.getElementById("btnWipe").onclick=()=>{if(!confirm("全ての連絡先とデータを削除します。よろしいですか？"))return;db={contacts:[],settings:db.settings};save();renderHome();renderList();toast("削除しました");};
 
@@ -827,7 +984,7 @@ document.getElementById("btnWipe").onclick=()=>{if(!confirm("全ての連絡先�
 document.getElementById("btnBackup").onclick=exportJSON;
 function download(name,text,type){const b=new Blob([text],{type:type||"application/octet-stream"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
 function exportJSON(){download(`meishi-crm_${todayStr()}.json`,JSON.stringify(db,null,2),"application/json");toast("バックアップしました");}
-document.getElementById("impJson").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.contacts))throw 0;if(!confirm("現在のデータを置き換えます。よろしいですか？"))return;const s=d.settings||{};const cards=Array.isArray(s.myCards)?s.myCards.map(p=>({id:uid(),label:str(p&&p.label),prairie:str(p&&p.prairie)})).filter(p=>p.label):undefined;db={contacts:d.contacts.map(sanitizeContact),settings:{apiKey:str(s.apiKey),model:str(s.model)||"claude-opus-4-8",myName:str(s.myName),myCards:cards}};normalizeSettings();save();syncSettings();renderHome();renderList();toast("復元しました");}catch(_){toast("読み込めませんでした");}};r.readAsText(f);e.target.value="";});
+document.getElementById("impJson").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.contacts))throw 0;if(!confirm("現在のデータを置き換えます。よろしいですか？"))return;const s=d.settings||{};const cards=Array.isArray(s.myCards)?s.myCards.map(p=>({id:uid(),label:str(p&&p.label),prairie:str(p&&p.prairie)})).filter(p=>p.label):undefined;const tpls=Array.isArray(s.templates)?s.templates.map(t=>({id:uid(),channel:(t&&t.channel==="line")?"line":"email",name:str(t&&t.name)||"（無題）",subject:str(t&&t.subject),body:str(t&&t.body)})):undefined;db={contacts:d.contacts.map(sanitizeContact),settings:{apiKey:str(s.apiKey),model:str(s.model)||"claude-opus-4-8",myName:str(s.myName),myCards:cards,templates:tpls}};normalizeSettings();save();syncSettings();renderHome();renderList();toast("復元しました");}catch(_){toast("読み込めませんでした");}};r.readAsText(f);e.target.value="";});
 
 const CSV_COLS=[["company","会社名"],["name","氏名"],["title","役職"],["tel","代表電話"],["fax","FAX"],["mobile","携帯電話"],["email","メール"],["address","住所"],["url","URL"],["prairie","プレーリーURL"],["persona","立場"],["category","カテゴリ"],["referrer","紹介元"],["memo","メモ"],["createdAt","記録日時"]];
 function csvCell(v){v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
