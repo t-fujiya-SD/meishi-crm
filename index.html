@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.anthropic.com; img-src 'self' data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>名刺CRM</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1f2733; --sub:#6b7683;
+    --line:#e6e9ee; --brand:#2f7d5b; --brand-d:#256247; --accent:#c9772f;
+    --danger:#c8433a; --chip:#eef2f0; --warn-bg:#fff4e6; --warn-ink:#a85b17;
+    --radius:14px; --shadow:0 1px 3px rgba(20,30,45,.07),0 6px 20px rgba(20,30,45,.05);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic UI","Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6;
+    -webkit-font-smoothing:antialiased; padding-bottom:calc(70px + env(safe-area-inset-bottom));
+  }
+  header{
+    position:sticky; top:0; z-index:20; background:rgba(255,255,255,.92);
+    backdrop-filter:saturate(180%) blur(10px); border-bottom:1px solid var(--line);
+    padding:12px 16px calc(12px); display:flex; align-items:center; gap:10px;
+    padding-top:calc(12px + env(safe-area-inset-top));
+  }
+  header .logo{font-weight:800; font-size:18px; letter-spacing:.02em}
+  header .logo b{color:var(--brand)}
+  header .sp{flex:1}
+  .btn{
+    appearance:none; border:1px solid var(--line); background:var(--card); color:var(--ink);
+    padding:9px 14px; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer;
+    transition:.12s; display:inline-flex; align-items:center; gap:6px; line-height:1;
+  }
+  .btn:active{transform:scale(.97)}
+  .btn.primary{background:var(--brand); border-color:var(--brand); color:#fff}
+  .btn.primary:hover{background:var(--brand-d)}
+  .btn.ghost{background:transparent}
+  .btn.sm{padding:6px 10px; font-size:13px; border-radius:8px}
+  .btn.danger{color:var(--danger); border-color:#f0cfcc}
+  .btn:disabled{opacity:.5; cursor:not-allowed}
+  main{max-width:760px; margin:0 auto; padding:16px}
+  .view{display:none; animation:fade .2s ease}
+  .view.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  h2.sec{font-size:15px; color:var(--sub); font-weight:700; margin:22px 2px 10px; letter-spacing:.03em}
+  h2.sec:first-child{margin-top:4px}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow)}
+  .pad{padding:16px}
+
+  /* dashboard */
+  .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 12px; text-align:center; box-shadow:var(--shadow)}
+  .stat .n{font-size:26px; font-weight:800; color:var(--brand)}
+  .stat .l{font-size:12px; color:var(--sub); margin-top:2px}
+  .radar-item,.todo-item{
+    display:flex; align-items:center; gap:12px; padding:13px 14px; border-bottom:1px solid var(--line); cursor:pointer;
+  }
+  .radar-item:last-child,.todo-item:last-child{border-bottom:none}
+  .radar-item:active,.todo-item:active,.contact-row:active{background:#fafbfc}
+  .avatar{width:40px;height:40px;border-radius:10px;background:var(--chip);display:grid;place-items:center;font-weight:800;color:var(--brand-d);flex:none;font-size:16px}
+  .grow{flex:1; min-width:0}
+  .nm{font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .cm{font-size:13px; color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .days{font-size:12px; font-weight:700; padding:4px 9px; border-radius:20px; flex:none}
+  .days.hot{background:#fdecea; color:var(--danger)}
+  .days.warm{background:var(--warn-bg); color:var(--warn-ink)}
+  .days.ok{background:var(--chip); color:var(--sub)}
+  .empty{text-align:center; color:var(--sub); padding:30px 16px; font-size:14px}
+  .empty .big{font-size:32px; margin-bottom:6px}
+
+  /* list */
+  .toolbar{display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap}
+  .search{flex:1; min-width:160px; display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:0 12px}
+  .search input{border:none; outline:none; background:transparent; padding:11px 0; width:100%; font-size:15px; color:var(--ink)}
+  .filters{display:flex; gap:7px; overflow-x:auto; padding-bottom:6px; margin-bottom:8px; -webkit-overflow-scrolling:touch}
+  .chip{white-space:nowrap; padding:6px 12px; border-radius:20px; background:var(--card); border:1px solid var(--line); font-size:13px; font-weight:600; color:var(--sub); cursor:pointer}
+  .chip.on{background:var(--brand); color:#fff; border-color:var(--brand)}
+  .contact-row{display:flex; align-items:center; gap:12px; padding:13px 14px; border-bottom:1px solid var(--line); cursor:pointer}
+  .contact-row:last-child{border-bottom:none}
+  .badge{font-size:11px; font-weight:700; color:var(--sub); background:var(--chip); padding:2px 8px; border-radius:20px; flex:none}
+
+  /* scan */
+  .drop{
+    border:2px dashed #cfd6dd; border-radius:var(--radius); background:var(--card); padding:34px 18px; text-align:center; cursor:pointer; transition:.15s;
+  }
+  .drop.drag{border-color:var(--brand); background:#f0f7f3}
+  .drop .big{font-size:40px}
+  .drop .t{font-weight:700; margin-top:8px}
+  .drop .s{font-size:13px; color:var(--sub); margin-top:4px}
+  .scan-actions{display:flex; gap:8px; margin-top:12px}
+  .preview-card{border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:10px; background:var(--card)}
+  .preview-card .kv{display:grid; grid-template-columns:76px 1fr; gap:6px 8px; font-size:14px; align-items:center}
+  .preview-card .kv label{color:var(--sub); font-size:12px}
+  .preview-card input{width:100%; border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:14px; outline:none}
+  .thumbs{display:flex; gap:8px; overflow-x:auto; margin-top:10px}
+  .thumbs img{height:70px; border-radius:8px; border:1px solid var(--line)}
+
+  /* modal */
+  .modal{position:fixed; inset:0; z-index:50; display:none}
+  .modal.open{display:block}
+  .modal .scrim{position:absolute; inset:0; background:rgba(15,22,33,.45)}
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; max-height:92vh; overflow:auto;
+    background:var(--bg); border-radius:20px 20px 0 0; box-shadow:0 -8px 30px rgba(0,0,0,.2);
+    animation:up .25s cubic-bezier(.2,.8,.2,1); padding-bottom:calc(20px + env(safe-area-inset-bottom));
+  }
+  @keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
+  .sheet-head{position:sticky; top:0; background:var(--bg); padding:14px 16px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line); z-index:2}
+  .sheet-head .grab{position:absolute; top:7px; left:50%; transform:translateX(-50%); width:38px; height:4px; border-radius:4px; background:#d3d8de}
+  .field{margin-bottom:11px}
+  .field label{display:block; font-size:12px; color:var(--sub); margin-bottom:4px; font-weight:600}
+  .field input,.field select,.field textarea{width:100%; border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:15px; outline:none; background:var(--card); color:var(--ink); font-family:inherit}
+  .field textarea{resize:vertical; min-height:64px}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .quick{display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 2px}
+  .quick a{flex:1; min-width:70px; text-align:center; text-decoration:none; padding:10px; border-radius:10px; background:var(--card); border:1px solid var(--line); color:var(--brand-d); font-weight:700; font-size:13px}
+  .tp{border-left:3px solid var(--brand); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:11px 13px; margin-bottom:9px}
+  .tp .tpm{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--sub)}
+  .tp .tpt{font-weight:700; color:var(--ink); font-size:13px}
+  .tp .tpn{margin-top:4px; font-size:14px; white-space:pre-wrap}
+  .tp .na{margin-top:7px; font-size:13px; background:var(--warn-bg); color:var(--warn-ink); padding:6px 10px; border-radius:8px; display:flex; align-items:center; gap:8px}
+  .na .grow2{flex:1}
+  .aibox{background:#f0f7f3; border:1px solid #cfe6da; border-radius:12px; padding:12px; margin-top:8px}
+  .aibox textarea{width:100%; min-height:120px; border:1px solid var(--line); border-radius:8px; padding:10px; font-size:14px; font-family:inherit; background:#fff}
+  .tag{display:inline-flex; align-items:center; gap:4px; background:var(--chip); color:var(--brand-d); padding:3px 9px; border-radius:20px; font-size:12px; font-weight:600; margin:2px 4px 2px 0}
+  .tag b{cursor:pointer; opacity:.6}
+  .type-pick{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px}
+  .type-pick .chip.on{background:var(--accent); border-color:var(--accent)}
+  .chip.pchip.on{background:var(--accent); border-color:var(--accent)}
+  .badge.pbadge{color:var(--warn-ink); background:var(--warn-bg)}
+  .pbreak{display:flex; flex-wrap:wrap; gap:6px; margin:10px 2px 0}
+  .prow{display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin-bottom:8px; align-items:center}
+  .prow input{border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:14px; outline:none; width:100%; background:var(--card); color:var(--ink)}
+  @media(max-width:560px){.prow{grid-template-columns:1fr}}
+
+  /* bottom nav */
+  nav{
+    position:fixed; left:0; right:0; bottom:0; z-index:30; background:rgba(255,255,255,.94);
+    backdrop-filter:blur(10px); border-top:1px solid var(--line); display:flex;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  nav button{flex:1; background:none; border:none; padding:9px 4px 8px; font-size:11px; color:var(--sub); cursor:pointer; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:2px}
+  nav button .ic{font-size:21px; line-height:1}
+  nav button.on{color:var(--brand)}
+  .toast{position:fixed; left:50%; bottom:84px; transform:translateX(-50%); background:#1f2733; color:#fff; padding:10px 18px; border-radius:24px; font-size:14px; z-index:100; opacity:0; transition:.25s; pointer-events:none; box-shadow:var(--shadow)}
+  .toast.show{opacity:1; bottom:92px}
+  .spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;display:inline-block;animation:sp .7s linear infinite}
+  .spin.dark{border-color:rgba(47,125,91,.3);border-top-color:var(--brand)}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .muted{color:var(--sub); font-size:13px}
+  .warn{background:var(--warn-bg); border:1px solid #f0dcc0; color:var(--warn-ink); padding:11px 13px; border-radius:10px; font-size:13px}
+  a.lnk{color:var(--brand); font-weight:600}
+  .center{display:grid; place-items:center; gap:6px; padding:24px}
+  hr.d{border:none; border-top:1px solid var(--line); margin:16px 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">名刺<b>CRM</b></div>
+  <div class="sp"></div>
+  <button class="btn sm ghost" id="btnBackup" title="バックアップ">⤓ 保存</button>
+</header>
+
+<main>
+  <!-- ===== DASHBOARD ===== -->
+  <section class="view active" id="v-home">
+    <div class="stats" id="stats"></div>
+    <div id="personaBreak"></div>
+
+    <h2 class="sec">📡 ごぶさたレーダー（連絡したい順）</h2>
+    <div class="card" id="radar"></div>
+
+    <h2 class="sec">✅ 次アクション</h2>
+    <div class="card" id="todos"></div>
+  </section>
+
+  <!-- ===== SCAN ===== -->
+  <section class="view" id="v-scan">
+    <h2 class="sec">📇 名刺を読み込む</h2>
+    <div class="field"><label>この交換で配った自分の立場</label><select id="scanPersona"></select></div>
+    <div class="drop" id="drop">
+      <div class="big">📷</div>
+      <div class="t">名刺の写真をここに</div>
+      <div class="s">タップで撮影・選択（複数枚OK）／ドラッグ＆ドロップ</div>
+    </div>
+    <input type="file" id="fileIn" accept="image/*" multiple capture="environment" style="display:none">
+    <div class="thumbs" id="thumbs"></div>
+    <div id="scanStatus"></div>
+    <div id="scanResults"></div>
+    <div class="scan-actions" id="scanActions" style="display:none">
+      <button class="btn primary" style="flex:1" id="btnAddAll">✓ 全部リストに追加</button>
+      <button class="btn ghost" id="btnScanClear">クリア</button>
+    </div>
+    <hr class="d">
+    <button class="btn ghost" style="width:100%" id="btnManual">＋ 手入力で追加</button>
+    <p class="muted" style="margin-top:10px">※ 読み取りにはClaude APIキーが必要です（<a class="lnk" onclick="go('set')">設定</a>）。キー無しでも手入力・CRMは使えます。</p>
+  </section>
+
+  <!-- ===== CONTACTS ===== -->
+  <section class="view" id="v-list">
+    <div class="toolbar">
+      <div class="search"><span>🔍</span><input id="q" placeholder="名前・会社・メモで検索"></div>
+    </div>
+    <div class="filters" id="personaFilters"></div>
+    <div class="filters" id="catFilters"></div>
+    <div class="card" id="listWrap"></div>
+  </section>
+
+  <!-- ===== SETTINGS ===== -->
+  <section class="view" id="v-set">
+    <h2 class="sec">🔑 Claude API</h2>
+    <div class="card pad">
+      <div class="field">
+        <label>APIキー（sk-ant-…）</label>
+        <input type="password" id="apiKey" placeholder="sk-ant-...">
+      </div>
+      <div class="field">
+        <label>モデル</label>
+        <select id="model">
+          <option value="claude-opus-4-8">Opus 4.8（最高精度）</option>
+          <option value="claude-sonnet-5">Sonnet 5（バランス）</option>
+          <option value="claude-haiku-4-5">Haiku 4.5（安い・速い／名刺OCRに十分）</option>
+        </select>
+      </div>
+      <button class="btn primary" id="btnSaveKey">保存</button>
+      <p class="warn" style="margin-top:12px">キーはこの端末のブラウザ内（localStorage）にのみ保存され、Claude以外には送信しません。共有端末では使用後に「キー削除」を。</p>
+      <p class="muted" style="margin-top:8px">キー取得: <span style="user-select:all">console.anthropic.com</span></p>
+    </div>
+
+    <h2 class="sec">🪪 自分の名刺（配る立場）</h2>
+    <div class="card pad">
+      <div class="field">
+        <label>自分の氏名（署名用）</label>
+        <input id="myName" placeholder="例：藤谷 匠">
+      </div>
+      <div class="field" style="margin-bottom:6px"><label>配る立場（名刺）と各プロフィールURL</label></div>
+      <div id="personaList"></div>
+      <button class="btn ghost sm" onclick="addPersona()" style="margin:2px 0 12px">＋ 立場を追加</button>
+      <div><button class="btn primary" id="btnSaveSelf">保存</button></div>
+      <p class="muted" style="margin-top:10px">名刺交換のたびに「どの立場で配ったか」を記録・絞り込みでき、AIフォロー下書きの署名もその立場のプロフィールURLに自動で切り替わります。</p>
+    </div>
+
+    <h2 class="sec">💾 データ</h2>
+    <div class="card pad">
+      <div class="quick">
+        <a onclick="exportJSON()">JSONバックアップ</a>
+        <a onclick="document.getElementById('impJson').click()">JSON復元</a>
+      </div>
+      <div class="quick" style="margin-top:8px">
+        <a onclick="exportCSV()">CSV書き出し</a>
+        <a onclick="document.getElementById('impCsv').click()">CSV取込</a>
+      </div>
+      <p class="muted" style="margin:6px 0 0">CSVは名刺情報のみ（接点・タグは含まず）。完全な保存はJSONバックアップを。</p>
+      <div class="quick" style="margin-top:8px">
+        <a onclick="document.getElementById('impVcf').click()">📇 vCard(.vcf)取込</a>
+      </div>
+      <input type="file" id="impJson" accept=".json,application/json" style="display:none">
+      <input type="file" id="impCsv" accept=".csv,text/csv" style="display:none">
+      <input type="file" id="impVcf" accept=".vcf,text/vcard" multiple style="display:none">
+      <p class="muted" style="margin-top:8px">プレーリーで交換→iPhone連絡先に保存→連絡先を書き出し(.vcf)→ここで取込。</p>
+      <hr class="d">
+      <button class="btn danger" id="btnDelKey">キー削除</button>
+      <button class="btn danger" id="btnWipe">全データ削除</button>
+    </div>
+    <p class="muted" style="margin-top:14px; text-align:center">名刺CRM · 単一HTML · localStorage保存</p>
+  </section>
+</main>
+
+<!-- ===== CONTACT DETAIL MODAL ===== -->
+<div class="modal" id="modal">
+  <div class="scrim" onclick="closeModal()"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-head">
+      <div class="grab"></div>
+      <b id="mTitle" style="flex:1; font-size:16px"></b>
+      <button class="btn sm ghost" onclick="closeModal()">閉じる</button>
+    </div>
+    <div class="pad" id="mBody"></div>
+  </div>
+</div>
+
+<nav>
+  <button data-v="home" class="on"><span class="ic">🏠</span>今日</button>
+  <button data-v="scan"><span class="ic">📇</span>名刺</button>
+  <button data-v="list"><span class="ic">👥</span>顧客</button>
+  <button data-v="set"><span class="ic">⚙️</span>設定</button>
+</nav>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ============ storage ============ */
+const KEY="meishi_crm_v1";
+const DEFAULT_CATS=["取引先","見込み客","士業・専門家","メディア","協力会社","その他"];
+const TP_TYPES=["会う","電話","メール","LINE","会食","その他"];
+let db=load();normalizeSettings();
+
+function load(){
+  try{const r=JSON.parse(localStorage.getItem(KEY)); if(r&&r.contacts) return r;}catch(e){}
+  return {contacts:[], settings:{apiKey:"",model:"claude-opus-4-8"}};
+}
+function normalizeSettings(){
+  const s=db.settings=db.settings||{};
+  if(s.apiKey==null)s.apiKey=""; if(!s.model)s.model="claude-opus-4-8"; if(s.myName==null)s.myName="";
+  if(!Array.isArray(s.myCards))s.myCards=["VRtrade","Globridge","旬彩坊","ジャパンダイニング","スパイシーデバイス","eff"].map(l=>({id:uid(),label:l,prairie:""}));
+}
+function personaCards(){return db.settings.myCards||[];}
+function personaLabels(){return personaCards().map(c=>c.label).filter(Boolean);}
+function personaByLabel(l){return personaCards().find(c=>c.label===l);}
+function personaOptions(sel){return `<option value="">（未設定）</option>`+personaLabels().map(l=>`<option value="${esc(l)}"${sel===l?" selected":""}>${esc(l)}</option>`).join("");}
+function save(){try{localStorage.setItem(KEY, JSON.stringify(db));return true;}catch(e){toast("保存できませんでした（容量オーバー等）");return false;}}
+function str(v){return typeof v==="string"?v:(v==null?"":String(v));}
+function sanitizeContact(c){c=c||{};return {id:uid(),company:str(c.company),name:str(c.name),kana:str(c.kana),title:str(c.title),tel:str(c.tel),fax:str(c.fax),mobile:str(c.mobile),email:str(c.email),address:str(c.address),url:str(c.url),prairie:str(c.prairie),persona:str(c.persona),category:str(c.category)||"見込み客",referrer:str(c.referrer),memo:str(c.memo),tags:Array.isArray(c.tags)?c.tags.map(str):[],createdAt:str(c.createdAt)||new Date().toISOString(),touchpoints:Array.isArray(c.touchpoints)?c.touchpoints.map(t=>({id:uid(),type:str(t&&t.type),date:str(t&&t.date),note:str(t&&t.note),nextAction:str(t&&t.nextAction),nextDate:str(t&&t.nextDate),done:!!(t&&t.done)})):[]};}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2000);}
+function todayStr(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function daysSince(dateStr){if(!dateStr)return null;const d=new Date(dateStr+"T00:00:00");if(isNaN(d))return null;return Math.floor((new Date(todayStr()+"T00:00:00")-d)/86400000);}
+
+/* ============ nav ============ */
+const VIEWS={home:"v-home",scan:"v-scan",list:"v-list",set:"v-set"};
+function go(v){
+  Object.values(VIEWS).forEach(id=>document.getElementById(id).classList.remove("active"));
+  document.getElementById(VIEWS[v]).classList.add("active");
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  window.scrollTo(0,0);
+  if(v==="home")renderHome();
+  if(v==="list")renderList();
+  if(v==="scan")fillScanPersona();
+}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>go(b.dataset.v));
+
+/* ---- event delegation (no untrusted data in inline handlers) ---- */
+document.addEventListener("click",e=>{
+  const open=e.target.closest("[data-open]"); if(open){openContact(open.dataset.open);return;}
+  const cat=e.target.closest("[data-cat]"); if(cat){setCat(cat.dataset.cat);return;}
+  const pf=e.target.closest("[data-persona]"); if(pf){setPersona(pf.dataset.persona);return;}
+  const gp=e.target.closest("[data-gopersona]"); if(gp){filterPersona=gp.dataset.gopersona;go("list");return;}
+  const rm=e.target.closest("[data-rmtag]"); if(rm){removeTag(rm.dataset.rmtag);return;}
+  const dtp=e.target.closest("[data-deltp]"); if(dtp){delTP(dtp.dataset.deltp);return;}
+  const dp=e.target.closest("[data-delp]"); if(dp){deletePersona(dp.dataset.delp);return;}
+});
+document.addEventListener("change",e=>{
+  const tg=e.target.closest("[data-toggletp]"); if(tg){toggleTP(tg.dataset.toggletp);return;}
+  const dn=e.target.closest("[data-donec]"); if(dn){doneTodo(dn.dataset.donec,dn.dataset.donet);return;}
+});
+
+/* ============ contact helpers ============ */
+function contactById(id){return db.contacts.find(c=>c.id===id);}
+function initials(c){const n=(c.name||c.company||"?").trim();return n.slice(0,1);}
+function lastTouch(c){if(!c.touchpoints||!c.touchpoints.length)return null;return c.touchpoints.map(t=>t.date).filter(Boolean).sort().slice(-1)[0]||null;}
+function tpCount(c){return (c.touchpoints||[]).length;}
+function staleDays(c){const lt=lastTouch(c);return daysSince(lt|| (c.createdAt||"").slice(0,10));}
+function daysClass(d){if(d==null)return"ok";if(d>=45)return"hot";if(d>=20)return"warm";return"ok";}
+function daysLabel(d){if(d==null)return"未接点";if(d===0)return"今日";return d+"日";}
+
+/* ============ dashboard ============ */
+function renderHome(){
+  const cs=db.contacts;
+  const withTp=cs.filter(c=>tpCount(c)>0).length;
+  const totalTp=cs.reduce((s,c)=>s+tpCount(c),0);
+  document.getElementById("stats").innerHTML=`
+    <div class="stat"><div class="n">${cs.length}</div><div class="l">顧客</div></div>
+    <div class="stat"><div class="n">${totalTp}</div><div class="l">接点</div></div>
+    <div class="stat"><div class="n">${withTp}</div><div class="l">接点あり</div></div>`;
+
+  // 立場別の内訳（タップで絞り込み）
+  const pb=document.getElementById("personaBreak");
+  const plabels=personaLabels();
+  const pused=[...new Set(cs.map(c=>c.persona).filter(Boolean))];
+  const porder=plabels.concat(pused.filter(u=>!plabels.includes(u)));
+  const pcounts=porder.map(l=>({l,n:cs.filter(c=>c.persona===l).length})).filter(x=>x.n>0);
+  const pnone=cs.filter(c=>!c.persona).length;
+  pb.innerHTML=(cs.length&&(pcounts.length||pnone))
+    ? `<div class="pbreak">${pcounts.map(x=>`<span class="badge pbadge" data-gopersona="${esc(x.l)}" style="cursor:pointer">${esc(x.l)} ${x.n}</span>`).join("")}${pnone?`<span class="badge" data-gopersona="__none__" style="cursor:pointer">立場未設定 ${pnone}</span>`:""}</div>`
+    : "";
+
+  // radar: never-contacted or long-stale, top by days
+  const radar=cs.map(c=>({c,d:staleDays(c)}))
+    .filter(x=>x.d==null || x.d>=14)
+    .sort((a,b)=>{
+      if(a.d==null&&b.d==null)return 0; if(a.d==null)return -1; if(b.d==null)return 1;
+      return b.d-a.d;
+    }).slice(0,12);
+  const rEl=document.getElementById("radar");
+  if(!radar.length){
+    rEl.innerHTML=`<div class="empty"><div class="big">🎉</div>フォロー漏れなし。いい感じです</div>`;
+  }else{
+    rEl.innerHTML=radar.map(({c,d})=>`
+      <div class="radar-item" data-open="${esc(c.id)}">
+        <div class="avatar">${esc(initials(c))}</div>
+        <div class="grow"><div class="nm">${esc(c.name||"（名前未設定）")}</div>
+          <div class="cm">${esc(c.company||"")}${c.title?" · "+esc(c.title):""}</div></div>
+        <div class="days ${daysClass(d)}">${daysLabel(d)}</div>
+      </div>`).join("");
+  }
+
+  // todos: touchpoints w/ nextAction not done
+  const todos=[];
+  cs.forEach(c=>(c.touchpoints||[]).forEach(t=>{if(t.nextAction&&!t.done)todos.push({c,t});}));
+  todos.sort((a,b)=>((a.t.nextDate||"9999")+"").localeCompare((b.t.nextDate||"9999")+""));
+  const tEl=document.getElementById("todos");
+  if(!todos.length){tEl.innerHTML=`<div class="empty">未完了の次アクションはありません</div>`;}
+  else{
+    tEl.innerHTML=todos.slice(0,20).map(({c,t})=>`
+      <div class="todo-item">
+        <input type="checkbox" data-donec="${esc(c.id)}" data-donet="${esc(t.id)}" style="width:20px;height:20px;flex:none">
+        <div class="grow" data-open="${esc(c.id)}">
+          <div class="nm">${esc(t.nextAction)}</div>
+          <div class="cm">${esc(c.name||c.company)}${t.nextDate?" · 期限 "+esc(t.nextDate):""}</div>
+        </div>
+      </div>`).join("");
+  }
+}
+function doneTodo(cid,tid){const c=contactById(cid);const t=(c.touchpoints||[]).find(x=>x.id===tid);if(t){t.done=true;save();renderHome();toast("完了にしました");}}
+
+/* ============ list ============ */
+let filterCat="", filterPersona="", query="";
+function renderPersonaFilters(){
+  const el=document.getElementById("personaFilters");if(!el)return;
+  const all=personaLabels().slice();
+  [...new Set(db.contacts.map(c=>c.persona).filter(Boolean))].forEach(u=>{if(!all.includes(u))all.push(u);});
+  const hasNone=db.contacts.some(c=>!c.persona);
+  if(!all.length){el.innerHTML="";return;}
+  el.innerHTML=`<div class="chip pchip ${filterPersona===""?"on":""}" data-persona="">立場：すべて</div>`+
+    all.map(l=>`<div class="chip pchip ${filterPersona===l?"on":""}" data-persona="${esc(l)}">${esc(l)}</div>`).join("")+
+    (hasNone?`<div class="chip pchip ${filterPersona==="__none__"?"on":""}" data-persona="__none__">未設定</div>`:"");
+}
+function setPersona(p){filterPersona=p;renderList();}
+function renderCatFilters(){
+  const cats=[...new Set(db.contacts.map(c=>c.category).filter(Boolean))];
+  const all=DEFAULT_CATS.filter(c=>cats.includes(c)).concat(cats.filter(c=>!DEFAULT_CATS.includes(c)));
+  document.getElementById("catFilters").innerHTML=
+    `<div class="chip ${filterCat===""?"on":""}" data-cat="">すべて</div>`+
+    all.map(c=>`<div class="chip ${filterCat===c?"on":""}" data-cat="${esc(c)}">${esc(c)}</div>`).join("");
+}
+function setCat(c){filterCat=c;renderList();}
+function renderList(){
+  renderCatFilters();renderPersonaFilters();
+  let list=db.contacts.slice();
+  if(filterCat)list=list.filter(c=>c.category===filterCat);
+  if(filterPersona==="__none__")list=list.filter(c=>!c.persona);
+  else if(filterPersona)list=list.filter(c=>c.persona===filterPersona);
+  if(query){const q=query.toLowerCase();list=list.filter(c=>[c.name,c.company,c.title,c.memo,(c.tags||[]).join(" "),c.email].some(v=>(v||"").toLowerCase().includes(q)));}
+  list.sort((a,b)=>{const da=staleDays(a),db2=staleDays(b);const va=da==null?99999:da,vb=db2==null?99999:db2;return vb-va;});
+  const el=document.getElementById("listWrap");
+  if(!db.contacts.length){el.innerHTML=`<div class="empty"><div class="big">📇</div>まだ名刺がありません<br><a class="lnk" onclick="go('scan')">名刺を読み込む</a></div>`;return;}
+  if(!list.length){el.innerHTML=`<div class="empty">該当なし</div>`;return;}
+  el.innerHTML=list.map(c=>{
+    const d=staleDays(c);const n=tpCount(c);
+    return `<div class="contact-row" data-open="${esc(c.id)}">
+      <div class="avatar">${esc(initials(c))}</div>
+      <div class="grow"><div class="nm">${esc(c.name||"（名前未設定）")}</div>
+        <div class="cm">${esc(c.company||"")}${c.title?" · "+esc(c.title):""}</div></div>
+      ${c.persona?`<span class="badge pbadge">${esc(c.persona)}</span>`:""}
+      ${n?`<span class="badge">接点${n}</span>`:""}
+      <div class="days ${daysClass(d)}">${daysLabel(d)}</div>
+    </div>`;
+  }).join("");
+}
+document.getElementById("q").addEventListener("input",e=>{query=e.target.value.trim();renderList();});
+
+/* ============ contact detail modal ============ */
+let curId=null;
+function openContact(id){curId=id;renderModal();document.getElementById("modal").classList.add("open");}
+function closeModal(){document.getElementById("modal").classList.remove("open");curId=null;}
+function fld(label,key,val,type){return `<div class="field"><label>${label}</label><input data-k="${key}" type="${type||'text'}" value="${esc(val||'')}"></div>`;}
+function renderModal(){
+  const c=contactById(curId);if(!c)return;
+  document.getElementById("mTitle").textContent=c.name||c.company||"連絡先";
+  const n=tpCount(c),d=staleDays(c);
+  const quick=[];
+  if(c.mobile||c.tel)quick.push(`<a href="tel:${esc((c.mobile||c.tel).replace(/[^0-9+]/g,''))}">📞 電話</a>`);
+  if(c.email)quick.push(`<a href="mailto:${esc(c.email)}">✉️ メール</a>`);
+  if(c.url)quick.push(`<a href="${esc(/^https?:/.test(c.url)?c.url:'https://'+c.url)}" target="_blank" rel="noopener">🌐 Web</a>`);
+  if(c.prairie)quick.push(`<a href="${esc(/^https?:/.test(c.prairie)?c.prairie:'https://'+c.prairie)}" target="_blank" rel="noopener">🪪 プロフィール</a>`);
+  const tags=(c.tags||[]).map(t=>`<span class="tag">${esc(t)}<b data-rmtag="${esc(t)}">✕</b></span>`).join("");
+  document.getElementById("mBody").innerHTML=`
+    <div class="card pad" style="margin-bottom:12px">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+        <div class="avatar" style="width:48px;height:48px;font-size:19px">${esc(initials(c))}</div>
+        <div class="grow"><div style="font-weight:800;font-size:17px">${esc(c.name||"（名前未設定）")}</div>
+          <div class="muted">${esc(c.company||"")}${c.title?" · "+esc(c.title):""}</div></div>
+        <div style="text-align:right"><div class="days ${daysClass(d)}">${daysLabel(d)}</div>
+          <div class="muted" style="font-size:11px;margin-top:3px">接点 ${n}回</div></div>
+      </div>
+      ${quick.length?`<div class="quick">${quick.join("")}</div>`:""}
+    </div>
+
+    <div class="card pad" style="margin-bottom:12px">
+      <div style="font-weight:700;margin-bottom:8px">📝 プロフィール</div>
+      <div class="row2">${fld("会社名","company",c.company)}${fld("氏名","name",c.name)}</div>
+      <div class="row2">${fld("役職","title",c.title)}${fld("カテゴリ","category",c.category)}</div>
+      <div class="field"><label>配った名刺（自分の立場）</label><select data-k="persona">${personaOptions(c.persona)}</select></div>
+      <div class="row2">${fld("携帯","mobile",c.mobile)}${fld("代表電話","tel",c.tel)}</div>
+      <div class="row2">${fld("メール","email",c.email)}${fld("FAX","fax",c.fax)}</div>
+      ${fld("URL","url",c.url)}
+      ${fld("プレーリー等プロフィールURL","prairie",c.prairie)}
+      ${fld("住所","address",c.address)}
+      ${fld("紹介元","referrer",c.referrer)}
+      <div class="field"><label>メモ</label><textarea data-k="memo">${esc(c.memo||"")}</textarea></div>
+      <div class="field"><label>タグ</label><div>${tags||'<span class="muted">なし</span>'}</div>
+        <div style="display:flex;gap:6px;margin-top:6px"><input id="tagIn" placeholder="タグを追加" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px">
+        <button class="btn sm" onclick="addTag()">＋</button></div></div>
+      <button class="btn primary sm" onclick="saveProfile()">プロフィールを保存</button>
+    </div>
+
+    <div class="card pad" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-weight:700;flex:1">🕑 接点タイムライン（${n}）</div>
+      </div>
+      <div id="tpForm">
+        <div class="type-pick" id="typePick">${TP_TYPES.map((t,i)=>`<div class="chip ${i===0?'on':''}" data-type="${t}" onclick="pickType(this)">${t}</div>`).join("")}</div>
+        <div class="row2">
+          <div class="field" style="margin:0"><label>日付</label><input id="tpDate" type="date" value="${todayStr()}"></div>
+          <div class="field" style="margin:0"><label>次アクション期限</label><input id="tpNextDate" type="date"></div>
+        </div>
+        <div class="field" style="margin-top:8px"><label>内容</label><textarea id="tpNote" placeholder="何を話した？ 何が決まった？"></textarea></div>
+        <div class="field"><label>次アクション（任意）</label><input id="tpNext" placeholder="例：来週サンプル送付"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn primary sm" style="flex:1" onclick="addTP()">＋ 接点を記録</button>
+          <button class="btn sm" onclick="aiStructure()">🤖 メモを整形</button>
+        </div>
+        <div id="aiStructBox"></div>
+      </div>
+      <hr class="d">
+      <div id="tpList"></div>
+    </div>
+
+    <div class="card pad" style="margin-bottom:12px">
+      <div style="font-weight:700;margin-bottom:6px">🤖 AIフォロー下書き</div>
+      <p class="muted" style="margin-top:0">相手情報と接点履歴から、連絡文の下書きを作ります。</p>
+      <div class="row2">
+        <div class="field" style="margin:0"><label>目的</label><select id="aiPurpose">
+          <option>ごあいさつ・お礼</option><option>近況伺い（ごぶさた）</option><option>再訪・面談の提案</option><option>紹介のお願い</option></select></div>
+        <div class="field" style="margin:0"><label>手段</label><select id="aiChannel"><option>LINE</option><option>メール</option></select></div>
+      </div>
+      <button class="btn sm" style="margin-top:8px" onclick="aiDraft()">下書きを作る</button>
+      <div id="aiDraftBox"></div>
+    </div>
+
+    <button class="btn danger" style="width:100%" onclick="deleteContact()">この連絡先を削除</button>
+  `;
+  curType=TP_TYPES[0];
+  renderTPList();
+}
+function renderTPList(){
+  const c=contactById(curId);const el=document.getElementById("tpList");if(!el)return;
+  const tps=(c.touchpoints||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  if(!tps.length){el.innerHTML=`<div class="muted" style="text-align:center;padding:6px">まだ接点記録がありません</div>`;return;}
+  el.innerHTML=tps.map(t=>`
+    <div class="tp">
+      <div class="tpm"><span class="tpt">${esc(t.type||"その他")}</span> · ${esc(t.date||"")}
+        <span style="flex:1"></span><b data-deltp="${esc(t.id)}" style="cursor:pointer;color:var(--sub)">✕</b></div>
+      ${t.note?`<div class="tpn">${esc(t.note)}</div>`:""}
+      ${t.nextAction?`<div class="na"><span class="grow2">→ ${esc(t.nextAction)}${t.nextDate?" ("+esc(t.nextDate)+")":""}</span>
+        <input type="checkbox" ${t.done?"checked":""} data-toggletp="${esc(t.id)}" style="width:18px;height:18px"></div>`:""}
+    </div>`).join("");
+}
+let curType=TP_TYPES[0];
+function pickType(el){document.querySelectorAll("#typePick .chip").forEach(c=>c.classList.remove("on"));el.classList.add("on");curType=el.dataset.type;}
+function addTP(){
+  const c=contactById(curId);if(!c.touchpoints)c.touchpoints=[];
+  const note=document.getElementById("tpNote").value.trim();
+  const next=document.getElementById("tpNext").value.trim();
+  const date=document.getElementById("tpDate").value||todayStr();
+  const nextDate=document.getElementById("tpNextDate").value;
+  if(!note&&!next){toast("内容か次アクションを入力");return;}
+  const onChip=document.querySelector("#typePick .chip.on");
+  const type=onChip?onChip.dataset.type:curType;
+  c.touchpoints.push({id:uid(),type,date,note,nextAction:next,nextDate,done:false});
+  save();document.getElementById("tpNote").value="";document.getElementById("tpNext").value="";document.getElementById("tpNextDate").value="";
+  document.getElementById("mTitle");renderTPList();
+  // update header count
+  const nc=tpCount(c);toast("接点を記録（計"+nc+"回）");renderModal();
+}
+function delTP(id){const c=contactById(curId);c.touchpoints=c.touchpoints.filter(t=>t.id!==id);save();renderModal();}
+function toggleTP(id){const c=contactById(curId);const t=c.touchpoints.find(x=>x.id===id);if(t){t.done=!t.done;save();renderTPList();}}
+function saveProfile(){
+  const c=contactById(curId);
+  document.querySelectorAll("#mBody [data-k]").forEach(inp=>{c[inp.dataset.k]=inp.value.trim();});
+  save();document.getElementById("mTitle").textContent=c.name||c.company||"連絡先";toast("保存しました");
+}
+function addTag(){const c=contactById(curId);const v=document.getElementById("tagIn").value.trim();if(!v)return;if(!c.tags)c.tags=[];if(!c.tags.includes(v))c.tags.push(v);save();renderModal();}
+function removeTag(t){const c=contactById(curId);c.tags=(c.tags||[]).filter(x=>x!==t);save();renderModal();}
+function deleteContact(){if(!confirm("この連絡先を削除しますか？"))return;db.contacts=db.contacts.filter(c=>c.id!==curId);save();closeModal();renderList();renderHome();toast("削除しました");}
+
+/* ============ Claude API ============ */
+async function callClaude(content,maxTokens){
+  const key=db.settings.apiKey;
+  if(!key)throw new Error("APIキーが未設定です（設定タブ）");
+  const res=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{
+      "content-type":"application/json",
+      "x-api-key":key,
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true"
+    },
+    body:JSON.stringify({
+      model:db.settings.model||"claude-opus-4-8",
+      max_tokens:maxTokens||1500,
+      messages:[{role:"user",content}]
+    })
+  });
+  if(!res.ok){
+    let msg=res.status+"";
+    try{const e=await res.json();msg=e.error?.message||msg;}catch(_){}
+    if(res.status===401)msg="APIキーが無効です";
+    throw new Error("API: "+msg);
+  }
+  const data=await res.json();
+  return (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+}
+function extractJSON(text){
+  if(!text)return null;
+  let s=text.replace(/```json/gi,"```").replace(/```/g,"").trim();
+  const start=Math.min(...["{","["].map(ch=>{const i=s.indexOf(ch);return i<0?1e9:i;}));
+  if(start===1e9)return null;
+  s=s.slice(start);
+  let depth=0,inStr=false,escNext=false,end=-1;
+  for(let i=0;i<s.length;i++){
+    const ch=s[i];
+    if(escNext){escNext=false;continue;}
+    if(ch==="\\"){escNext=true;continue;}
+    if(ch==='"'){inStr=!inStr;continue;}
+    if(inStr)continue;
+    if(ch==="{"||ch==="[")depth++;
+    else if(ch==="}"||ch==="]"){depth--;if(depth===0){end=i;break;}}
+  }
+  if(end<0)return null;
+  try{return JSON.parse(s.slice(0,end+1));}catch(e){return null;}
+}
+
+/* ============ scan ============ */
+const drop=document.getElementById("drop"),fileIn=document.getElementById("fileIn");
+let scanImages=[]; // {dataUrl, mediaType, b64}
+drop.onclick=()=>fileIn.click();
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+drop.addEventListener("drop",e=>{if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);});
+fileIn.addEventListener("change",e=>{if(e.target.files.length)handleFiles(e.target.files);fileIn.value="";});
+
+function resizeImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      const max=1600;let{width:w,height:h}=img;
+      if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}
+      const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+      cv.getContext("2d").drawImage(img,0,0,w,h);
+      const dataUrl=cv.toDataURL("image/jpeg",0.85);
+      resolve({dataUrl,mediaType:"image/jpeg",b64:dataUrl.split(",")[1]});
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("画像を読めません"));};
+    img.src=url;
+  });
+}
+async function handleFiles(files){
+  const imgs=[...files].filter(f=>f.type.startsWith("image/"));
+  if(!imgs.length)return;
+  const before=scanImages.length;
+  for(const f of imgs){try{scanImages.push(await resizeImage(f));}catch(e){}}
+  renderThumbs();
+  if(scanImages.length===before){
+    document.getElementById("scanStatus").innerHTML=`<div class="warn" style="margin-top:12px">画像を読み込めませんでした（HEIC等は非対応の場合あり）。JPEG/PNGでお試しください。</div>`;
+    return;
+  }
+  if(!db.settings.apiKey){
+    document.getElementById("scanStatus").innerHTML=`<div class="warn" style="margin-top:12px">APIキー未設定のため自動読取は不可。<a class="lnk" onclick="go('set')">設定</a>後にもう一度、または下の「手入力で追加」を。</div>`;
+    return;
+  }
+  runScan();
+}
+function renderThumbs(){document.getElementById("thumbs").innerHTML=scanImages.map(i=>`<img src="${i.dataUrl}">`).join("");}
+
+async function runScan(){
+  const status=document.getElementById("scanStatus");
+  status.innerHTML=`<div class="center"><span class="spin dark"></span><span class="muted">Claudeが名刺を読んでいます…</span></div>`;
+  document.getElementById("scanResults").innerHTML="";
+  const prompt=`これらの画像に写っている名刺を読み取り、次のJSONだけを出力してください（説明文は不要）。1枚に複数の名刺があれば全てcardsに入れてください。読めない項目は空文字。categoryは会社名・肩書から次のいずれかを推測: ${DEFAULT_CATS.join(" / ")}。
+{"cards":[{"company":"","name":"","kana":"","title":"","tel":"","fax":"","mobile":"","email":"","address":"","url":"","category":""}]}`;
+  const content=scanImages.map(i=>({type:"image",source:{type:"base64",media_type:i.mediaType,data:i.b64}}));
+  content.push({type:"text",text:prompt});
+  try{
+    const txt=await callClaude(content,4096);
+    const json=extractJSON(txt);
+    const cards=Array.isArray(json&&json.cards)?json.cards:(Array.isArray(json)?json:(json&&typeof json==="object"&&(json.name||json.company)?[json]:[]));
+    if(!cards.length){status.innerHTML=`<div class="warn" style="margin-top:12px">名刺を読み取れませんでした。手入力で追加してください。</div>`;return;}
+    status.innerHTML=`<div class="muted" style="margin:12px 2px 4px">${cards.length}件を読み取りました。内容を確認して追加👇</div>`;
+    renderScanResults(cards);
+  }catch(e){
+    status.innerHTML=`<div class="warn" style="margin-top:12px">読取エラー: ${esc(e.message)}</div>`;
+  }
+}
+let scanCards=[];
+function renderScanResults(cards){
+  scanCards=cards.map(c=>({id:uid(),company:c.company||"",name:c.name||"",kana:c.kana||"",title:c.title||"",tel:c.tel||"",fax:c.fax||"",mobile:c.mobile||"",email:c.email||"",address:c.address||"",url:c.url||"",category:c.category||"見込み客"}));
+  const wrap=document.getElementById("scanResults");
+  wrap.innerHTML=scanCards.map(c=>`
+    <div class="preview-card" data-id="${c.id}">
+      <div class="kv">
+        <label>会社</label><input data-f="company" value="${esc(c.company)}">
+        <label>氏名</label><input data-f="name" value="${esc(c.name)}">
+        <label>役職</label><input data-f="title" value="${esc(c.title)}">
+        <label>携帯</label><input data-f="mobile" value="${esc(c.mobile)}">
+        <label>電話</label><input data-f="tel" value="${esc(c.tel)}">
+        <label>メール</label><input data-f="email" value="${esc(c.email)}">
+        <label>カテゴリ</label><input data-f="category" value="${esc(c.category)}">
+      </div>
+    </div>`).join("");
+  document.getElementById("scanActions").style.display="flex";
+}
+document.getElementById("btnAddAll").onclick=()=>{
+  const persona=(document.getElementById("scanPersona")||{}).value||"";
+  document.querySelectorAll("#scanResults .preview-card").forEach(card=>{
+    const id=card.dataset.id;const sc=scanCards.find(x=>x.id===id);
+    card.querySelectorAll("[data-f]").forEach(inp=>sc[inp.dataset.f]=inp.value.trim());
+    db.contacts.push({id:uid(),company:sc.company,name:sc.name,kana:sc.kana,title:sc.title,tel:sc.tel,fax:sc.fax,mobile:sc.mobile,email:sc.email,address:sc.address,url:sc.url,prairie:"",category:sc.category,persona,tags:[],referrer:"",memo:"",createdAt:new Date().toISOString(),touchpoints:[]});
+  });
+  save();const n=scanCards.length;clearScan();toast(n+"件を追加しました"+(persona?"（立場："+persona+"）":""));go("list");
+};
+document.getElementById("btnScanClear").onclick=clearScan;
+function clearScan(){scanImages=[];scanCards=[];renderThumbs();document.getElementById("scanResults").innerHTML="";document.getElementById("scanStatus").innerHTML="";document.getElementById("scanActions").style.display="none";}
+document.getElementById("btnManual").onclick=()=>{
+  const c={id:uid(),company:"",name:"新規連絡先",title:"",tel:"",fax:"",mobile:"",email:"",address:"",url:"",prairie:"",category:"見込み客",persona:(document.getElementById("scanPersona")||{}).value||"",tags:[],referrer:"",memo:"",createdAt:new Date().toISOString(),touchpoints:[]};
+  db.contacts.push(c);save();openContact(c.id);
+};
+
+/* ============ AI: structure memo → touchpoint ============ */
+async function aiStructure(){
+  const myId=curId;
+  const box=document.getElementById("aiStructBox");
+  const raw=document.getElementById("tpNote").value.trim();
+  if(!raw){toast("先に内容メモを入力してください");return;}
+  box.innerHTML=`<div class="center"><span class="spin dark"></span></div>`;
+  const prompt=`次の雑メモを1件の接点記録に構造化し、JSONだけを出力（説明不要）。今日は${todayStr()}。typeは次から選ぶ:${TP_TYPES.join("/")}。日付が不明なら今日。
+{"date":"YYYY-MM-DD","type":"","note":"要点を簡潔に","nextAction":""}
+メモ:「${raw}」`;
+  try{
+    const txt=await callClaude([{type:"text",text:prompt}],800);
+    if(curId!==myId)return;
+    const j=extractJSON(txt);
+    if(!j){box.innerHTML=`<div class="muted">整形できませんでした</div>`;return;}
+    if(j.date)document.getElementById("tpDate").value=j.date;
+    if(j.note)document.getElementById("tpNote").value=j.note;
+    if(j.nextAction)document.getElementById("tpNext").value=j.nextAction;
+    if(j.type){document.querySelectorAll("#typePick .chip").forEach(el=>{if(el.dataset.type===j.type){pickType(el);}});}
+    box.innerHTML=`<div class="muted" style="margin-top:6px">✓ 整形しました。確認して記録してください</div>`;
+  }catch(e){box.innerHTML=`<div class="warn" style="margin-top:6px">${esc(e.message)}</div>`;}
+}
+
+/* ============ AI: follow-up draft ============ */
+async function aiDraft(){
+  const myId=curId;
+  const c=contactById(curId);const box=document.getElementById("aiDraftBox");
+  const purpose=document.getElementById("aiPurpose").value;
+  const channel=document.getElementById("aiChannel").value;
+  box.innerHTML=`<div class="center"><span class="spin dark"></span><span class="muted">作成中…</span></div>`;
+  const hist=(c.touchpoints||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5)
+    .map(t=>`- ${t.date} ${t.type}: ${t.note||""}${t.nextAction?"（次:"+t.nextAction+"）":""}`).join("\n")||"（接点記録なし）";
+  const lt=lastTouch(c);const sd=staleDays(c);
+  const persona=c.persona||"";
+  const pcard=personaByLabel(persona);
+  const meName=[db.settings.myName,persona?`（${persona}）`:""].filter(Boolean).join("");
+  const me=meName?`差出人は「${meName}」。`:"";
+  const prompt=`あなたは飲食店向けの経営コンサルタントの秘書です。${me}以下の相手に送る「${channel}」の${purpose}メッセージ下書きを、日本語で自然に作ってください。丁寧すぎず、相手が返信しやすい親しみのあるビジネストーン。${channel==="LINE"?"LINE向けに短く2〜4文":"件名＋本文。本文は5〜8文程度"}。宛名は相手の名字＋敬称。末尾の署名やURLは書かないでください（自動で付けます）。出力は本文（と件名）のみ、説明や注釈は不要。
+
+相手:
+- 氏名: ${c.name||"（不明）"}
+- 会社/肩書: ${c.company||""} ${c.title||""}
+- カテゴリ: ${c.category||""}
+${lt?`- 最終接点: ${lt}（${sd}日前）`:"- まだ接点なし"}
+これまでの接点:
+${hist}`;
+  try{
+    let txt=(await callClaude([{type:"text",text:prompt}],1200)).trim();
+    if(curId!==myId)return;
+    const purl=pcard&&pcard.prairie?pcard.prairie:"";
+    let sig="";
+    if(meName)sig+=meName;
+    if(purl)sig+=(sig?"\n":"")+"▼プロフィール\n"+purl;
+    if(sig)txt+="\n\n─────\n"+sig;
+    box.innerHTML=`<div class="aibox"><textarea id="draftOut">${esc(txt)}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn primary sm" style="flex:1" onclick="copyDraft()">📋 コピー</button>
+        <button class="btn sm" onclick="aiDraft()">作り直す</button>
+      </div></div>`;
+  }catch(e){box.innerHTML=`<div class="warn" style="margin-top:8px">${esc(e.message)}</div>`;}
+}
+function copyDraft(){const t=document.getElementById("draftOut");t.select();navigator.clipboard?.writeText(t.value);toast("コピーしました");}
+
+/* ============ settings ============ */
+function syncSettings(){document.getElementById("apiKey").value=db.settings.apiKey||"";document.getElementById("model").value=db.settings.model||"claude-opus-4-8";document.getElementById("myName").value=db.settings.myName||"";renderPersonas();fillScanPersona();}
+function renderPersonas(){
+  const el=document.getElementById("personaList");if(!el)return;
+  el.innerHTML=personaCards().map(c=>`
+    <div class="prow" data-pid="${esc(c.id)}">
+      <input class="plabel" value="${esc(c.label)}" placeholder="立場・屋号">
+      <input class="pprairie" value="${esc(c.prairie||"")}" placeholder="プロフィールURL（任意）">
+      <button class="btn sm danger" data-delp="${esc(c.id)}">削除</button>
+    </div>`).join("")||`<p class="muted" style="margin:0 0 8px">立場が未登録です</p>`;
+}
+function syncPersonasFromDOM(){
+  db.settings.myCards=[...document.querySelectorAll("#personaList .prow")].map(row=>({
+    id:row.dataset.pid, label:row.querySelector(".plabel").value, prairie:row.querySelector(".pprairie").value
+  }));
+}
+function addPersona(){syncPersonasFromDOM();db.settings.myCards.push({id:uid(),label:"",prairie:""});renderPersonas();}
+function deletePersona(id){syncPersonasFromDOM();db.settings.myCards=db.settings.myCards.filter(c=>c.id!==id);renderPersonas();}
+function fillScanPersona(){const s=document.getElementById("scanPersona");if(!s)return;s.innerHTML=personaOptions(s.value);}
+document.getElementById("btnSaveKey").onclick=()=>{db.settings.apiKey=document.getElementById("apiKey").value.trim();db.settings.model=document.getElementById("model").value;save();toast("保存しました");};
+document.getElementById("btnSaveSelf").onclick=()=>{
+  db.settings.myName=document.getElementById("myName").value.trim();
+  syncPersonasFromDOM();
+  db.settings.myCards=db.settings.myCards.map(c=>({id:c.id,label:c.label.trim(),prairie:c.prairie.trim()})).filter(c=>c.label);
+  save();renderPersonas();fillScanPersona();toast("保存しました");
+};
+document.getElementById("btnDelKey").onclick=()=>{if(!confirm("APIキーを削除しますか？"))return;db.settings.apiKey="";save();syncSettings();toast("削除しました");};
+document.getElementById("btnWipe").onclick=()=>{if(!confirm("全ての連絡先とデータを削除します。よろしいですか？"))return;db={contacts:[],settings:db.settings};save();renderHome();renderList();toast("削除しました");};
+
+/* ============ backup / import ============ */
+document.getElementById("btnBackup").onclick=exportJSON;
+function download(name,text,type){const b=new Blob([text],{type:type||"application/octet-stream"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
+function exportJSON(){download(`meishi-crm_${todayStr()}.json`,JSON.stringify(db,null,2),"application/json");toast("バックアップしました");}
+document.getElementById("impJson").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.contacts))throw 0;if(!confirm("現在のデータを置き換えます。よろしいですか？"))return;const s=d.settings||{};const cards=Array.isArray(s.myCards)?s.myCards.map(p=>({id:uid(),label:str(p&&p.label),prairie:str(p&&p.prairie)})).filter(p=>p.label):undefined;db={contacts:d.contacts.map(sanitizeContact),settings:{apiKey:str(s.apiKey),model:str(s.model)||"claude-opus-4-8",myName:str(s.myName),myCards:cards}};normalizeSettings();save();syncSettings();renderHome();renderList();toast("復元しました");}catch(_){toast("読み込めませんでした");}};r.readAsText(f);e.target.value="";});
+
+const CSV_COLS=[["company","会社名"],["name","氏名"],["title","役職"],["tel","代表電話"],["fax","FAX"],["mobile","携帯電話"],["email","メール"],["address","住所"],["url","URL"],["prairie","プレーリーURL"],["persona","立場"],["category","カテゴリ"],["referrer","紹介元"],["memo","メモ"],["createdAt","記録日時"]];
+function csvCell(v){v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+function exportCSV(){
+  const head=CSV_COLS.map(c=>c[1]).join(",");
+  const rows=db.contacts.map(c=>CSV_COLS.map(col=>csvCell(c[col[0]])).join(","));
+  download(`meishi-crm_${todayStr()}.csv`,"﻿"+[head,...rows].join("\r\n"),"text/csv");toast("CSVを書き出しました");
+}
+function parseCSV(text){
+  const rows=[];let row=[],cur="",inQ=false;
+  text=text.replace(/^﻿/,"");
+  for(let i=0;i<text.length;i++){const ch=text[i];
+    if(inQ){if(ch==='"'){if(text[i+1]==='"'){cur+='"';i++;}else inQ=false;}else cur+=ch;}
+    else{if(ch==='"')inQ=true;else if(ch===","){row.push(cur);cur="";}
+      else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&text[i+1]==="\n")i++;row.push(cur);rows.push(row);row=[];cur="";}
+      else cur+=ch;}
+  }
+  if(cur!==""||row.length){row.push(cur);rows.push(row);}
+  return rows.filter(r=>r.some(x=>x!==""));
+}
+document.getElementById("impCsv").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{
+  const rows=parseCSV(r.result);if(rows.length<2){toast("データがありません");return;}
+  const head=rows[0].map(h=>h.trim());
+  const map={};CSV_COLS.forEach(([k,jp])=>{const i=head.indexOf(jp);if(i>=0)map[k]=i;else{const i2=head.indexOf(k);if(i2>=0)map[k]=i2;}});
+  let n=0;
+  for(let i=1;i<rows.length;i++){const cells=rows[i];const c={id:uid(),tags:[],touchpoints:[],category:"見込み客",createdAt:new Date().toISOString()};
+    CSV_COLS.forEach(([k])=>{if(map[k]!=null&&cells[map[k]]!=null)c[k]=cells[map[k]].trim();});
+    if(c.company||c.name){db.contacts.push(c);n++;}}
+  save();renderList();renderHome();toast(n+"件を取込みました");
+};r.readAsText(f);e.target.value="";});
+
+/* ---- vCard (.vcf) import ---- */
+function unfoldVcf(text){return text.replace(/\r\n/g,"\n").replace(/\n[ \t]/g,"");}
+function decodeVcfVal(raw,params){
+  let v=raw;
+  if(/ENCODING=QUOTED-PRINTABLE/i.test(params)){
+    v=v.replace(/=\n/g,"").replace(/=([0-9A-Fa-f]{2})/g,(m,h)=>String.fromCharCode(parseInt(h,16)));
+    try{v=decodeURIComponent(escape(v));}catch(_){}
+  }
+  return v.replace(/\\n/gi,"\n").replace(/\\,/g,",").replace(/\\;/g,";").replace(/\\\\/g,"\\").trim();
+}
+function parseVcards(text){
+  const cards=[];const blocks=unfoldVcf(text).split(/BEGIN:VCARD/i).slice(1);
+  for(const blk of blocks){
+    const raw=blk.split("\n");const lines=[];
+    for(let i=0;i<raw.length;i++){let ln=raw[i];
+      while(/ENCODING=QUOTED-PRINTABLE/i.test(ln)&&/=\s*$/.test(ln)&&i+1<raw.length){ln=ln.replace(/=\s*$/,"")+raw[++i];}
+      lines.push(ln);}
+    const c={id:uid(),tags:[],touchpoints:[],category:"見込み客",createdAt:new Date().toISOString()};
+    let famous="",given="";
+    for(let line of lines){
+      const idx=line.indexOf(":");if(idx<0)continue;
+      const left=line.slice(0,idx);const val=line.slice(idx+1);
+      const parts=left.split(";");const name=parts[0].toUpperCase();const params=left.toUpperCase();
+      const v=decodeVcfVal(val,params);if(!v)continue;
+      if(name==="FN")c.name=v;
+      else if(name==="N"){const n=v.split(";");famous=n[0]||"";given=n[1]||"";}
+      else if(name==="ORG")c.company=v.split(";").filter(Boolean).join(" ");
+      else if(name==="TITLE")c.title=v;
+      else if(name==="TEL"){
+        if(/FAX/.test(params))c.fax=c.fax||v;
+        else if(/CELL|MOBILE|IPHONE/.test(params))c.mobile=c.mobile||v;
+        else c.tel=c.tel||v;
+      }
+      else if(name==="EMAIL")c.email=c.email||v;
+      else if(name==="ADR")c.address=c.address||v.split(";").filter(Boolean).join(" ");
+      else if(name==="URL"){if(/prairie/i.test(v))c.prairie=v;else c.url=c.url||v;}
+      else if(name==="NOTE")c.memo=v;
+    }
+    if(!c.name&&(famous||given))c.name=(famous+" "+given).trim();
+    if(c.name||c.company)cards.push(c);
+  }
+  return cards;
+}
+document.getElementById("impVcf").addEventListener("change",e=>{
+  const files=[...e.target.files];if(!files.length)return;let all=[],done=0;
+  const finish=()=>{if(done!==files.length)return;
+    if(!all.length){toast("取り込めるvCardがありませんでした");return;}
+    all.forEach(c=>db.contacts.push(c));save();renderList();renderHome();toast(all.length+"件を取込みました");go("list");};
+  files.forEach(f=>{const r=new FileReader();
+    r.onload=()=>{try{all=all.concat(parseVcards(r.result));}catch(_){}done++;finish();};
+    r.onerror=()=>{done++;finish();};
+    r.readAsText(f);});
+  e.target.value="";
+});
+
+/* ============ init ============ */
+syncSettings();renderHome();
+</script>
+</body>
+</html>
