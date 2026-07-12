@@ -267,7 +267,7 @@
         <button class="btn ghost sm" onclick="addTemplate('line')">＋ LINEを追加</button>
       </div>
       <button class="btn primary" id="btnSaveTpl">保存</button>
-      <p class="muted" style="margin-top:10px">差し込みタグ: <code>{氏名}</code> <code>{会社}</code> <code>{役職}</code> <code>{立場}</code> <code>{自分名}</code> <code>{プロフィールURL}</code> <code>{日付}</code> は送信時に自動で置換されます。</p>
+      <p class="muted" style="margin-top:10px">差し込みタグ: <code>{氏名}</code> <code>{会社}</code> <code>{役職}</code> <code>{立場}</code> <code>{自分名}</code> <code>{プロフィールURL}</code> <code>{日付}</code> <code>{交換日}</code> <code>{会った理由}</code> <code>{面談内容}</code> <code>{相手のニーズ}</code> <code>{次にすること}</code> は送信時に自動で置換されます（空の項目の行は自動で省かれます）。</p>
     </div>
 
     <h2 class="sec">💾 データ</h2>
@@ -333,21 +333,34 @@ function normalizeSettings(){
   const s=db.settings=db.settings||{};
   if(s.apiKey==null)s.apiKey=""; if(!s.model)s.model="claude-opus-4-8"; if(s.myName==null)s.myName="";
   if(!Array.isArray(s.myCards))s.myCards=["VRtrade","Globridge","旬彩坊","ジャパンダイニング","スパイシーデバイス","eff"].map(l=>({id:uid(),label:l,prairie:""}));
-  if(!Array.isArray(s.templates))s.templates=[
-    {id:uid(),name:"お礼＋プロフィール",channel:"email",subject:"本日はありがとうございました（{自分名}）",
-     body:"{氏名}様\n\n本日はお名刺を交換いただきありがとうございました。{自分名}です。\n今後ともどうぞよろしくお願いいたします。\n\nよろしければ私のプロフィールもご覧ください。\n▼プロフィール\n{プロフィールURL}"},
-    {id:uid(),name:"後日フォロー",channel:"email",subject:"先日はありがとうございました（{自分名}）",
-     body:"{氏名}様\n\n先日は{会社}にてお時間をいただきありがとうございました。{自分名}です。\n改めてご挨拶させてください。\n\n▼プロフィール\n{プロフィールURL}"},
-    {id:uid(),name:"LINEお礼",channel:"line",subject:"",
-     body:"{氏名}さん、本日はありがとうございました！{自分名}です。\nよろしければプロフィールもどうぞ→ {プロフィールURL}"}
-  ];
+  if(!Array.isArray(s.templates)||!s.templatesV){
+    s.templates=[
+      {name:"初回お礼＋面談メモ",channel:"email",subject:"本日は貴重なお時間をありがとうございました｜{自分名}",
+       body:"{会社}\n{氏名}様\n\nお世話になっております。{自分名}（{立場}）と申します。\n本日は貴重なお時間をいただき、誠にありがとうございました。\n\n本日お伺いした内容を、念のため以下に整理いたします。\n・ご相談の背景：{会った理由}\n・本日の内容：{面談内容}\n・ご要望・ご関心：{相手のニーズ}\n・次のステップ：{次にすること}\n\n認識に相違等ございましたら、お気軽にお申し付けください。\n引き続き、どうぞよろしくお願いいたします。\n\n──────\n{自分名}\n▼プロフィール\n{プロフィールURL}"},
+      {name:"お礼（シンプル）",channel:"email",subject:"本日はありがとうございました｜{自分名}",
+       body:"{会社}\n{氏名}様\n\nお世話になっております。{自分名}（{立場}）と申します。\n本日は貴重なお時間をいただき、誠にありがとうございました。\n今後ともどうぞよろしくお願いいたします。\n\nよろしければ私のプロフィールもご覧ください。\n▼プロフィール\n{プロフィールURL}"},
+      {name:"後日フォロー・再連絡",channel:"email",subject:"先日のお礼と、その後のご相談｜{自分名}",
+       body:"{会社}\n{氏名}様\n\nご無沙汰しております。{自分名}（{立場}）です。\n先日は大変お世話になり、誠にありがとうございました。\n\nその後、{次にすること}の件はいかがでしょうか。\n改めてお打ち合わせのお時間をいただけますと幸いです。ご都合のよい日程を、いくつかお知らせいただけますでしょうか。\n\n引き続きどうぞよろしくお願いいたします。\n\n──────\n{自分名}\n▼プロフィール\n{プロフィールURL}"},
+      {name:"LINEお礼（初回）",channel:"line",subject:"",
+       body:"{氏名}さん、本日はありがとうございました！{自分名}（{立場}）です。\n引き続きどうぞよろしくお願いいたします。\nよろしければプロフィールもご覧ください→ {プロフィールURL}"},
+      {name:"LINE軽いお礼",channel:"line",subject:"",
+       body:"{氏名}さん、本日はありがとうございました！{自分名}です。\n今後ともどうぞよろしくお願いします🙇\nプロフィール→ {プロフィールURL}"}
+    ].map(t=>({id:uid(),...t}));
+    s.templatesV=2;
+  }
   if(!Array.isArray(db.scheduled))db.scheduled=[];
 }
 function templatesFor(ch){return (db.settings.templates||[]).filter(t=>t.channel===ch);}
 function fillTemplate(strv,c){
   const persona=c.persona||"";const pc=personaByLabel(persona);
-  const map={"{氏名}":c.name||"","{会社}":c.company||"","{役職}":c.title||"","{立場}":persona,"{自分名}":db.settings.myName||"","{プロフィールURL}":(pc&&pc.prairie)||"","{日付}":todayStr()};
-  return String(strv||"").replace(/\{氏名\}|\{会社\}|\{役職\}|\{立場\}|\{自分名\}|\{プロフィールURL\}|\{日付\}/g,m=>map[m]);
+  const map={
+    "{氏名}":c.name||"","{会社}":c.company||"","{役職}":c.title||"","{立場}":persona,
+    "{自分名}":db.settings.myName||"","{プロフィールURL}":(pc&&pc.prairie)||"","{日付}":todayStr(),
+    "{交換日}":c.metDate||"","{会った理由}":c.metReason||"","{面談内容}":c.metNotes||"","{相手のニーズ}":c.metNeeds||"","{次にすること}":c.metNext||""
+  };
+  let text=String(strv||"").replace(/\{[^}]+\}/g,m=>(m in map)?map[m]:m).replace(/（\s*）/g,"").replace(/\(\s*\)/g,"");
+  const lines=text.split("\n").filter(line=>!/^[・\-]?\s*[^：:\n]{1,16}[：:]\s*$/.test(line.trim()));
+  return lines.join("\n").replace(/\n{3,}/g,"\n\n").trim();
 }
 function personaCards(){return db.settings.myCards||[];}
 function personaLabels(){return personaCards().map(c=>c.label).filter(Boolean);}
@@ -355,7 +368,7 @@ function personaByLabel(l){return personaCards().find(c=>c.label===l);}
 function personaOptions(sel){return `<option value="">（未設定）</option>`+personaLabels().map(l=>`<option value="${esc(l)}"${sel===l?" selected":""}>${esc(l)}</option>`).join("");}
 function save(){try{localStorage.setItem(KEY, JSON.stringify(db));return true;}catch(e){toast("保存できませんでした（容量オーバー等）");return false;}}
 function str(v){return typeof v==="string"?v:(v==null?"":String(v));}
-function sanitizeContact(c){c=c||{};return {id:uid(),company:str(c.company),name:str(c.name),kana:str(c.kana),title:str(c.title),tel:str(c.tel),fax:str(c.fax),mobile:str(c.mobile),email:str(c.email),address:str(c.address),url:str(c.url),prairie:str(c.prairie),persona:str(c.persona),category:str(c.category)||"見込み客",referrer:str(c.referrer),memo:str(c.memo),tags:Array.isArray(c.tags)?c.tags.map(str):[],createdAt:str(c.createdAt)||new Date().toISOString(),touchpoints:Array.isArray(c.touchpoints)?c.touchpoints.map(t=>({id:uid(),type:str(t&&t.type),date:str(t&&t.date),note:str(t&&t.note),nextAction:str(t&&t.nextAction),nextDate:str(t&&t.nextDate),done:!!(t&&t.done)})):[]};}
+function sanitizeContact(c){c=c||{};return {id:uid(),company:str(c.company),name:str(c.name),kana:str(c.kana),title:str(c.title),tel:str(c.tel),fax:str(c.fax),mobile:str(c.mobile),email:str(c.email),address:str(c.address),url:str(c.url),prairie:str(c.prairie),persona:str(c.persona),category:str(c.category)||"見込み客",referrer:str(c.referrer),memo:str(c.memo),metDate:str(c.metDate),metReason:str(c.metReason),metNotes:str(c.metNotes),metNeeds:str(c.metNeeds),metNext:str(c.metNext),tags:Array.isArray(c.tags)?c.tags.map(str):[],createdAt:str(c.createdAt)||new Date().toISOString(),touchpoints:Array.isArray(c.touchpoints)?c.touchpoints.map(t=>({id:uid(),type:str(t&&t.type),date:str(t&&t.date),note:str(t&&t.note),nextAction:str(t&&t.nextAction),nextDate:str(t&&t.nextDate),done:!!(t&&t.done)})):[]};}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2000);}
@@ -591,6 +604,17 @@ function renderModal(){
         <div style="display:flex;gap:6px;margin-top:6px"><input id="tagIn" placeholder="タグを追加" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px">
         <button class="btn sm" onclick="addTag()">＋</button></div></div>
       <button class="btn primary sm" onclick="saveProfile()">プロフィールを保存</button>
+    </div>
+
+    <div class="card pad" style="margin-bottom:12px">
+      <div style="font-weight:700;margin-bottom:8px">🤝 名刺交換メモ</div>
+      <div class="field"><label>交換日</label><input data-k="metDate" type="date" value="${esc(c.metDate||"")}"></div>
+      <div class="field"><label>会ったきっかけ・目的</label><input data-k="metReason" value="${esc(c.metReason||"")}" placeholder="例：新規取引の初回ヒヤリング面談"></div>
+      <div class="field"><label>面談・会話の内容</label><textarea data-k="metNotes" placeholder="例：ご挨拶／初回見積もりの提出／配送の注意（鍵を開けて冷蔵庫前に納品）">${esc(c.metNotes||"")}</textarea></div>
+      <div class="field"><label>相手の関心・ニーズ（任意）</label><textarea data-k="metNeeds" placeholder="例：コスト削減、配送頻度のご相談">${esc(c.metNeeds||"")}</textarea></div>
+      <div class="field"><label>次にすること・約束（任意）</label><input data-k="metNext" value="${esc(c.metNext||"")}" placeholder="例：来週までに正式見積もりを送付"></div>
+      <button class="btn primary sm" onclick="saveProfile()">メモを保存</button>
+      <p class="muted" style="margin-top:8px">ここに記録すると、下の「📤フォロー送信」のテンプレ（初回お礼＋面談メモ）に自動で反映されます。</p>
     </div>
 
     <div class="card pad" style="margin-bottom:12px">
@@ -883,9 +907,12 @@ async function aiRefine(){
   const persona=c.persona||"";const pc=personaByLabel(persona);const purl=(pc&&pc.prairie)||"";
   const meName=[db.settings.myName,persona?`（${persona}）`:""].filter(Boolean).join("");
   const hist=(c.touchpoints||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5).map(t=>`- ${t.date} ${t.type}: ${t.note||""}`).join("\n")||"（接点記録なし）";
+  const memo=[c.metReason&&`目的: ${c.metReason}`,c.metNotes&&`面談内容: ${c.metNotes}`,c.metNeeds&&`相手の関心・ニーズ: ${c.metNeeds}`,c.metNext&&`次にすること: ${c.metNext}`].filter(Boolean).join("\n")||"（メモなし）";
   box.innerHTML=`<div class="center"><span class="spin dark"></span><span class="muted">整えています…</span></div>`;
-  const prompt=`あなたは飲食店向けコンサルの秘書です。名刺交換直後のフォロー${ch==="line"?"LINEメッセージ":"メール本文"}を日本語で自然に作ってください。宛名は相手の名字＋敬称。${ch==="line"?"短く2〜4文":"5〜8文程度"}。丁寧すぎず親しみのあるビジネストーン。${cur?`次のたたき台をベースに、意図を保って自然に整えてください：\n---\n${cur}\n---`:"お礼＋自分のプロフィール共有として新規作成。"} 差出人は「${meName||"（未設定）"}」。${purl?`末尾に『▼プロフィール\n${purl}』を必ず入れてください。`:"URL署名は不要。"}出力は本文のみ、件名や注釈・説明は不要。
+  const prompt=`あなたは飲食店向けコンサルの秘書です。名刺交換直後のフォロー${ch==="line"?"LINEメッセージ":"メール本文"}を日本語で自然に作ってください。宛名は相手の名字＋敬称。${ch==="line"?"短く2〜4文":"6〜10文程度"}。丁寧すぎず、信頼感のあるビジネストーン。${cur?`次のたたき台をベースに、意図を保って自然に整えてください：\n---\n${cur}\n---`:"お礼＋自分のプロフィール共有として新規作成。"} 下の「名刺交換メモ」に内容があれば、面談の要点を自然に振り返る一節として本文へ織り込んでください（箇条書きの丸写しは避ける）。差出人は「${meName||"（未設定）"}」。${purl?`末尾に『▼プロフィール\n${purl}』を必ず入れてください。`:"URL署名は不要。"}出力は本文のみ、件名や注釈・説明は不要。
 相手: ${c.name||""} / ${c.company||""} ${c.title||""}
+名刺交換メモ:
+${memo}
 これまでの接点:
 ${hist}`;
   try{
@@ -1072,7 +1099,7 @@ document.getElementById("impVcf").addEventListener("change",e=>{
 });
 
 /* ============ init ============ */
-syncSettings();renderHome();
+save();syncSettings();renderHome();
 </script>
 </body>
 </html>
