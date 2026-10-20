@@ -79,7 +79,7 @@
 ## 6. デプロイ / 公開状態
 - GitHub `t-fujiya-SD/meishi-crm` は **PUBLIC**（2026-10-20 時点: fork 0・issue／PR 0・ライセンスなし）。GitHub Pages（legacy ビルド・`main` の `/`・HTTPS 強制）で公開。公開サイトは**認証なしで誰でも開ける**（`noindex,nofollow` の meta あり・robots.txt なし・検索エンジンの登録実態は未確認）。
 - **公開サイトの本文は `bbfc6fa` 時点の `index.html` と完全一致**（2026-10-20 確認・sha256 先頭 `afbbcad9…`・`main` が動いたら取り直す）。デプロイは `main` への push の1本だけで、push からデプロイ成功まで約40秒（2026-10-20 時点の実績: 5コミット＝5ビルド）。ステージング・CI・事前テストは無い。ブラウザのキャッシュは最大10分。
-- `main` にブランチ保護・ruleset は無い。Pages の環境がデプロイ可能なブランチを `main` と `gh-pages` に限っている。作業ブランチの push で公開されないことは、設定と同アカウントの別 repo での実績からの判断で、この repo での実測は §9。
+- `main` にブランチ保護・ruleset は無い。Pages の環境がデプロイ可能なブランチを `main` と `gh-pages` に限っている。作業ブランチの push では公開されない（2026-10-20 にこの repo で実測: 作業ブランチを push しても Pages のビルドは5件のまま増えず、最新は `bbfc6fa`・公開サイトの本文と `main` の先頭も不変）。
 - **同じオリジン `t-fujiya-sd.github.io` を、同じアカウントの他の公開 Pages アプリ4つと共有**している（独自ドメインのアプリは別オリジン）。`localStorage` はオリジン単位なので、それらの JS から `meishi_crm_v1`（顧客＋鍵）を技術的に読める構造。他の公開 Pages アプリの内部は未監査（確認したのは、トップページの外部スクリプトの有無と、`localStorage` のキー名の衝突だけ）。このアカウントで Pages 有効の repo を増やすと、自動でこのオリジンに入る。
 - GitHub 側の公開面のそのほかの設定: secret scanning と push protection は有効（鍵の形式のみ検知・個人情報は止まらない）、repo secret 0件、dependabot のセキュリティ更新は無効、Actions の workflow は Pages のビルドだけ。
 - ローカル起動: オーナーのローカル設定 `launch.json` の `meishi-crm`（`python3 -m http.server 8147` を作業フォルダ指定で起動・`--bind` 指定なし＝既定で全インターフェースに bind・フォルダ全体を配信）。`localhost:8147` は本番と別オリジン＝別の保存領域。
@@ -111,7 +111,7 @@
 - Anthropic 側: データ保持・学習利用の設定・支出上限。3つのモデル ID が API で有効か・OCR の精度。`anthropic-dangerous-direct-browser-access` が今後も受け付けられるか。
 - Safari のタブとホーム画面アプリで保存領域が共有か分離か（iOS 26 を含む）。7日ルールの適用（使い方次第）。
 - 同じオリジンの他の公開 Pages アプリの内部の安全性。
-- 作業ブランチの push で Pages が再ビルドされないことの、この repo での実測（設定と別 repo の実績のみ）。`main` に `.md` を入れたとき実際に配信されるか。
+- `main` に `.md` を入れたとき、公開サイトで実際に配信されるか（入れてみないと分からない）。
 - 実際の iPhone／名刺アプリが出す vCard の形式（グループ接頭辞つきか）。メールクライアントごとの `mailto:` の解釈。
 - 検索エンジンへの登録の有無。
 - 過去の作業記録（repo 外）には「JSON 復元でテンプレは保全」とあるが、現行コードは復元でテンプレが既定に戻る（§4）。**現状はこの文書とコードを正とする。**

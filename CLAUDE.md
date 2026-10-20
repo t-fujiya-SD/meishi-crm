@@ -9,7 +9,7 @@
 
 ## このリポジトリ
 - GitHub `t-fujiya-SD/meishi-crm`。**PUBLIC**（誰でも読める）。アプリ本体は `index.html` 1つだけ（HTML・CSS・JS を1ファイルに同梱。ほかに追跡するのは運用文書 `CLAUDE.md`・`AI_HANDOFF.md` のみ。外部ライブラリ・ビルド・テスト・CI・README・`.gitignore` は無い）。
-- 公開は GitHub Pages（legacy ビルド・`main` の `/`）。**`main` へ push すると約40秒で本番公開**になる。`main` にブランチ保護・ruleset は無い（押せば止まらない）。作業ブランチの push では公開されない見込み（Pages の環境が `main`／`gh-pages` だけを許可している設定からの判断）。
+- 公開は GitHub Pages（legacy ビルド・`main` の `/`）。**`main` へ push すると約40秒で本番公開**になる。`main` にブランチ保護・ruleset は無い（押せば止まらない）。作業ブランチの push では公開されない（2026-10-20 にこの repo で実測: ブランチを push しても Pages のビルドは増えなかった。Pages の環境も `main`／`gh-pages` だけを許可している）。
 - データはサーバーに無く、利用者のブラウザの `localStorage`（キー `meishi_crm_v1`）に入る。認証は無い。Anthropic の API キーも利用者が自分で設定画面に入力し、同じ場所に保存される。
 - 公開サイトは同じオリジン（`t-fujiya-sd.github.io`）を、このアカウントの他の公開 Pages アプリと共有する。`localStorage` はオリジン単位なので、**同じオリジンの他アプリから見える**構造。
 - ローカル起動は、オーナーのローカル設定 `launch.json` の `meishi-crm`（`python3 -m http.server 8147`）。`localhost:8147` は本番とは別オリジン＝別の `localStorage` で、本番のデータには触れない。ただし 8147 は既定で全インターフェースに bind し、作業フォルダ全体を配信する（バックアップや確認用の複製をこのフォルダに置かない）。
