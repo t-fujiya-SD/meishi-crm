@@ -149,7 +149,7 @@
   nav button{flex:1; background:none; border:none; padding:9px 4px 8px; font-size:11px; color:var(--sub); cursor:pointer; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:2px}
   nav button .ic{font-size:21px; line-height:1}
   nav button.on{color:var(--brand)}
-  .toast{position:fixed; left:50%; bottom:84px; transform:translateX(-50%); background:#1f2733; color:#fff; padding:10px 18px; border-radius:24px; font-size:14px; z-index:100; opacity:0; transition:.25s; pointer-events:none; box-shadow:var(--shadow)}
+  .toast{position:fixed; left:50%; bottom:84px; transform:translateX(-50%); background:#1f2733; color:#fff; padding:10px 18px; border-radius:24px; font-size:14px; z-index:100; opacity:0; transition:.25s; pointer-events:none; box-shadow:var(--shadow); width:max-content; max-width:min(90vw,420px); text-align:center}
   .toast.show{opacity:1; bottom:92px}
   .spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;display:inline-block;animation:sp .7s linear infinite}
   .spin.dark{border-color:rgba(47,125,91,.3);border-top-color:var(--brand)}
@@ -242,7 +242,7 @@
         </select>
       </div>
       <button class="btn primary" id="btnSaveKey">保存</button>
-      <p class="warn" style="margin-top:12px">キーはこの端末のブラウザ内（localStorage）にのみ保存され、Claude以外には送信しません。共有端末では使用後に「キー削除」を。</p>
+      <p class="warn" style="margin-top:12px">キーはこの端末のブラウザ内（localStorage）にのみ保存され、Claude以外には送信しません。共有端末では使用後に「キー削除」を。このバージョンで書き出すJSONにはキーを含みません（以前に書き出したファイルには入っていることがあります）。別の端末や、ブラウザのデータを消した後は、設定で入力し直してください。</p>
       <p class="muted" style="margin-top:8px">キー取得: <span style="user-select:all">console.anthropic.com</span></p>
     </div>
 
@@ -280,7 +280,7 @@
         <a onclick="exportCSV()">CSV書き出し</a>
         <a onclick="document.getElementById('impCsv').click()">CSV取込</a>
       </div>
-      <p class="muted" style="margin:6px 0 0">CSVは名刺情報のみ（接点・タグは含まず）。完全な保存はJSONバックアップを。</p>
+      <p class="muted" style="margin:6px 0 0">CSVは名刺情報のみ（接点・タグは含まず）。全体の書き出しはJSONバックアップで。このバージョンの書き出しにAPIキーは含みませんが、顧客情報が入るため保管にご注意ください。</p>
       <div class="quick" style="margin-top:8px">
         <a onclick="document.getElementById('impVcf').click()">📇 vCard(.vcf)取込</a>
       </div>
@@ -288,6 +288,7 @@
       <input type="file" id="impCsv" accept=".csv,text/csv" style="display:none">
       <input type="file" id="impVcf" accept=".vcf,text/vcard" multiple style="display:none">
       <p class="muted" style="margin-top:8px">プレーリーで交換→iPhone連絡先に保存→連絡先を書き出し(.vcf)→ここで取込。</p>
+      <div id="undoBox"></div>
       <hr class="d">
       <button class="btn danger" id="btnDelKey">キー削除</button>
       <button class="btn danger" id="btnWipe">全データ削除</button>
@@ -323,14 +324,16 @@
 const KEY="meishi_crm_v1";
 const DEFAULT_CATS=["取引先","見込み客","士業・専門家","メディア","協力会社","その他"];
 const TP_TYPES=["会う","電話","メール","LINE","会食","その他"];
+let undoRaw=null,afterRaw=null,exportedRaw=null; // 復元前に戻す用（メモリ内のみ）と、保存値と同じ内容の db を最後に書き出したときの保存値。let db=load() より前に宣言する
 let db=load();normalizeSettings();
 
 function load(){
   try{const r=JSON.parse(localStorage.getItem(KEY)); if(r&&r.contacts) return r;}catch(e){}
   return {contacts:[], settings:{apiKey:"",model:"claude-opus-4-8"}};
 }
-function normalizeSettings(){
-  const s=db.settings=db.settings||{};
+function normalizeSettings(d){
+  d=d||db;
+  const s=d.settings=d.settings||{};
   if(s.apiKey==null)s.apiKey=""; if(!s.model)s.model="claude-opus-4-8"; if(s.myName==null)s.myName="";
   if(!Array.isArray(s.myCards))s.myCards=["VRtrade","Globridge","旬彩坊","ジャパンダイニング","スパイシーデバイス","eff"].map(l=>({id:uid(),label:l,prairie:""}));
   if(!Array.isArray(s.templates)||(s.templatesV||0)<3){
@@ -348,7 +351,7 @@ function normalizeSettings(){
     ].map(t=>({id:uid(),...t}));
     s.templatesV=3;
   }
-  if(!Array.isArray(db.scheduled))db.scheduled=[];
+  if(!Array.isArray(d.scheduled))d.scheduled=[];
 }
 function templatesFor(ch){return (db.settings.templates||[]).filter(t=>t.channel===ch);}
 function fillTemplate(strv,c){
@@ -368,10 +371,9 @@ function personaByLabel(l){return personaCards().find(c=>c.label===l);}
 function personaOptions(sel){return `<option value="">（未設定）</option>`+personaLabels().map(l=>`<option value="${esc(l)}"${sel===l?" selected":""}>${esc(l)}</option>`).join("");}
 function save(){try{localStorage.setItem(KEY, JSON.stringify(db));return true;}catch(e){toast("保存できませんでした（容量オーバー等）");return false;}}
 function str(v){return typeof v==="string"?v:(v==null?"":String(v));}
-function sanitizeContact(c){c=c||{};return {id:uid(),company:str(c.company),name:str(c.name),kana:str(c.kana),title:str(c.title),tel:str(c.tel),fax:str(c.fax),mobile:str(c.mobile),email:str(c.email),address:str(c.address),url:str(c.url),prairie:str(c.prairie),persona:str(c.persona),category:str(c.category)||"見込み客",referrer:str(c.referrer),memo:str(c.memo),metDate:str(c.metDate),metReason:str(c.metReason),metNotes:str(c.metNotes),metNeeds:str(c.metNeeds),metNext:str(c.metNext),tags:Array.isArray(c.tags)?c.tags.map(str):[],createdAt:str(c.createdAt)||new Date().toISOString(),touchpoints:Array.isArray(c.touchpoints)?c.touchpoints.map(t=>({id:uid(),type:str(t&&t.type),date:str(t&&t.date),note:str(t&&t.note),nextAction:str(t&&t.nextAction),nextDate:str(t&&t.nextDate),done:!!(t&&t.done)})):[]};}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2000);}
+function toast(m,ms){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),ms||Math.max(2000,Math.min(8000,String(m).length>15?String(m).length*150:0)));}
 function todayStr(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function daysSince(dateStr){if(!dateStr)return null;const d=new Date(dateStr+"T00:00:00");if(isNaN(d))return null;return Math.floor((new Date(todayStr()+"T00:00:00")-d)/86400000);}
 
@@ -510,7 +512,7 @@ function icsScheduled(id){const x=schById(id);if(!x)return;const c=contactById(x
   downloadICS(title,x.at,(x.subject?x.subject+"\n\n":"")+x.body);}
 function downloadICS(title,at,desc){
   const dt=(at||"").replace(/[-:]/g,"")+"00";
-  const e2=v=>String(v||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n");
+  const e2=v=>String(v||"").replace(/\r\n?/g,"\n").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n");
   const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//meishi-crm//JP","BEGIN:VEVENT","UID:"+uid()+"@meishi-crm","DTSTART:"+dt,"DURATION:PT15M","SUMMARY:"+e2(title),"DESCRIPTION:"+e2(desc),"BEGIN:VALARM","TRIGGER:PT0M","ACTION:DISPLAY","DESCRIPTION:"+e2(title),"END:VALARM","END:VEVENT","END:VCALENDAR"].join("\r\n");
   download("follow_"+dt+".ics",ics,"text/calendar");
 }
@@ -1005,13 +1007,226 @@ document.getElementById("btnSaveTpl").onclick=()=>{
   save();renderTemplates();toast("保存しました");
 };
 document.getElementById("btnDelKey").onclick=()=>{if(!confirm("APIキーを削除しますか？"))return;db.settings.apiKey="";save();syncSettings();toast("削除しました");};
-document.getElementById("btnWipe").onclick=()=>{if(!confirm("全ての連絡先とデータを削除します。よろしいですか？"))return;db={contacts:[],settings:db.settings};save();renderHome();renderList();toast("削除しました");};
+document.getElementById("btnWipe").onclick=()=>{if(!confirm("全ての連絡先とデータを削除します。よろしいですか？"))return;db={contacts:[],settings:db.settings};if(save()){undoRaw=afterRaw=null;renderUndo();}renderHome();renderList();toast("削除しました");};
+
+/* ============ backup core: DOM・localStorage に触れない関数（tests/ が index.html のこのブロックを直接取り出して検証する） ============ */
+/* ===== backup-core ===== */
+// 連絡先に項目を足すときは cleanContact の項目も更新する（未知の項目は整形で捨てる）。
+function isObj(v){return v!==null&&typeof v==="object"&&!Array.isArray(v);}
+function textOf(v){return typeof v==="string"?v:(typeof v==="number"||typeof v==="boolean")?String(v):"";}
+// id は /^[\w-]{1,64}$/ で未重複なら保持し、欠落・不正・重複のときだけ新しく振る。
+function keepId(raw,used,mk){
+  let id=typeof raw==="string"?raw:"";
+  if(!/^[\w-]{1,64}$/.test(id)||used.has(id)){mk=mk||uid;let n=0;do{id=mk()+(n?"_"+n:"");n++;}while(used.has(id));}
+  used.add(id);return id;
+}
+// x={mk:新idの作り方, nowIso:既定の登録日時, st:除外・付け直しの件数}
+function cleanContact(c,used,x){
+  const raw=Array.isArray(c.touchpoints)?c.touchpoints:[],tps=raw.filter(isObj),tu=new Set(),f=k=>textOf(c[k]);
+  x.st.touchpoints+=raw.length-tps.length;
+  return {id:keepId(c.id,used,x.mk),company:f("company"),name:f("name"),kana:f("kana"),title:f("title"),tel:f("tel"),fax:f("fax"),mobile:f("mobile"),email:f("email"),address:f("address"),url:f("url"),prairie:f("prairie"),persona:f("persona"),
+    category:c.category===undefined?"見込み客":f("category"),referrer:f("referrer"),memo:f("memo"),metDate:f("metDate"),metReason:f("metReason"),metNotes:f("metNotes"),metNeeds:f("metNeeds"),metNext:f("metNext"),
+    tags:Array.isArray(c.tags)?c.tags.map(textOf).filter(t=>t!==""):[],
+    createdAt:c.createdAt===undefined?x.nowIso:f("createdAt"),
+    touchpoints:tps.map(t=>{const id=keepId(t.id,tu,x.mk);if(id!==t.id)x.st.regen.touchpoints++;
+      return {id,type:textOf(t.type),date:textOf(t.date),note:textOf(t.note),nextAction:textOf(t.nextAction),nextDate:textOf(t.nextDate),done:t.done===true};})};
+}
+// 戻り値 kind: "v2"（format＋version===2）／"legacy"（format 無し＋contacts 配列＝従来の書き出し）／"future"（version が 2 より大きい）／"unknown"
+function detectBackup(root){
+  if(!isObj(root))return {kind:"unknown"};
+  if(root.format!==undefined){
+    if(root.format!=="meishi-crm-backup")return {kind:"unknown"};
+    if(root.version===2)return isObj(root.data)&&Array.isArray(root.data.contacts)?{kind:"v2",data:root.data}:{kind:"unknown"};
+    return {kind:typeof root.version==="number"&&root.version>2?"future":"unknown"};
+  }
+  return Array.isArray(root.contacts)?{kind:"legacy",data:root}:{kind:"unknown"};
+}
+function summarizeDb(d){
+  const cs=Array.isArray(d&&d.contacts)?d.contacts:[],s=isObj(d&&d.settings)?d.settings:{};
+  return {contacts:cs.length,touchpoints:cs.reduce((n,c)=>n+(isObj(c)&&Array.isArray(c.touchpoints)?c.touchpoints.length:0),0),scheduled:Array.isArray(d&&d.scheduled)?d.scheduled.length:0,templates:Array.isArray(s.templates)?s.templates.length:0,personas:Array.isArray(s.myCards)?s.myCards.length:0};
+}
+// 書き出し用 v2 封筒。settings は許可リスト方式で、apiKey は入れない。id は変えない。
+function buildBackup(d,nowIso){
+  const s=isObj(d&&d.settings)?d.settings:{};
+  return {format:"meishi-crm-backup",version:2,exportedAt:nowIso,data:{contacts:Array.isArray(d&&d.contacts)?d.contacts:[],scheduled:Array.isArray(d&&d.scheduled)?d.scheduled:[],
+    settings:{model:s.model,myName:s.myName,myCards:s.myCards,templates:s.templates,templatesV:s.templatesV}}};
+}
+// バックアップの文字列を検証・整形して、復元候補を作る（副作用なし）。ctx={nowIso, newId, currentSettings}
+// 失敗: {ok:false, reason:"badjson"|"notbackup"|"unsupported"|"nocontacts"}（reason は内部用の符号）
+// 成功: {ok:true, kind, db:{contacts,settings,scheduled}, report}。設定は currentSettings が土台で、ファイルにある有効な項目だけ上書きする。APIキーはファイルから読まない。
+function parseBackup(text,ctx){
+  ctx=ctx||{};
+  if(typeof text!=="string")return {ok:false,reason:"badjson"};
+  let root;try{root=JSON.parse(text.replace(/^\uFEFF/,""));}catch(e){return {ok:false,reason:"badjson"};}
+  const det=detectBackup(root);
+  if(det.kind==="future")return {ok:false,reason:"unsupported"};
+  if(det.kind==="unknown")return {ok:false,reason:"notbackup"};
+  const d=det.data,mk=ctx.newId||uid,nowIso=ctx.nowIso||new Date().toISOString();
+  const st={contacts:0,touchpoints:0,personas:0,templates:0,sched:{malformed:0,ambiguous:0,orphan:0,badAt:0},regen:{contacts:0,touchpoints:0,scheduled:0,personas:0,templates:0}},x={mk,nowIso,st};
+  const arr=d.contacts,objs=arr.filter(isObj);
+  if(arr.length>0&&objs.length===0)return {ok:false,reason:"nocontacts"};
+  st.contacts=arr.length-objs.length;
+  // 連絡先 id: 旧→新の対応表。旧 id が複数の連絡先で重複していると、予約の宛先を特定できない。
+  const cnt=new Map(),used=new Set(),idMap=new Map(),dup=new Set();
+  objs.forEach(o=>{if(typeof o.id==="string")cnt.set(o.id,(cnt.get(o.id)||0)+1);});
+  const contacts=objs.map(o=>{
+    const c=cleanContact(o,used,x);
+    if(c.id!==o.id)st.regen.contacts++;
+    if(typeof o.id==="string"){if(cnt.get(o.id)===1)idMap.set(o.id,c.id);else dup.add(o.id);}
+    return c;
+  });
+  const su=new Set(),scheduled=[];
+  (Array.isArray(d.scheduled)?d.scheduled:[]).forEach(s=>{
+    if(!isObj(s)||typeof s.contactId!=="string"){st.sched.malformed++;return;}
+    if(dup.has(s.contactId)){st.sched.ambiguous++;return;}
+    if(!idMap.has(s.contactId)){st.sched.orphan++;return;}
+    const at=textOf(s.at);
+    if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)){st.sched.badAt++;return;}
+    const id=keepId(s.id,su,mk);if(id!==s.id)st.regen.scheduled++;
+    scheduled.push({id,contactId:idMap.get(s.contactId),channel:s.channel==="line"?"line":"email",subject:textOf(s.subject),body:textOf(s.body),at,done:s.done===true});
+  });
+  const fset=isObj(d.settings)?d.settings:{},cur=isObj(ctx.currentSettings)?ctx.currentSettings:{},set=JSON.parse(JSON.stringify(cur));
+  set.apiKey=typeof cur.apiKey==="string"?cur.apiKey:"";
+  if(typeof fset.model==="string"&&/^[\w.\-]{1,64}$/.test(fset.model))set.model=fset.model; // モデル名は英数字・._- だけ採用する
+  if(typeof fset.myName==="string")set.myName=fset.myName;
+  // 立場・テンプレート: 空配列はそのまま採用する。要素があるのに有効なものが 0 件なら、現在のものを残す（壊れたファイルで消さない）
+  let pcUnreadable=false,tplAdopted=false,tplSkippedOld=false,tplUnreadable=false;
+  if(Array.isArray(fset.myCards)){
+    const pu=new Set(),cards=[];
+    fset.myCards.forEach(p=>{
+      const label=isObj(p)?textOf(p.label):"";
+      if(label===""){st.personas++;return;}
+      const id=keepId(p.id,pu,mk);if(id!==p.id)st.regen.personas++;
+      cards.push({id,label,prairie:textOf(p.prairie)});
+    });
+    if(cards.length||!fset.myCards.length)set.myCards=cards;else pcUnreadable=true;
+  }
+  if(Array.isArray(fset.templates)){
+    if(typeof fset.templatesV==="number"&&isFinite(fset.templatesV)&&fset.templatesV>=3){
+      const tu=new Set(),tpls=[];
+      fset.templates.forEach(t=>{
+        if(!isObj(t)){st.templates++;return;}
+        const id=keepId(t.id,tu,mk);if(id!==t.id)st.regen.templates++;
+        tpls.push({id,channel:t.channel==="line"?"line":"email",name:textOf(t.name)||"（無題）",subject:textOf(t.subject),body:textOf(t.body)});
+      });
+      if(tpls.length||!fset.templates.length){set.templates=tpls;set.templatesV=fset.templatesV;tplAdopted=true;}
+      else tplUnreadable=true; // templatesV も現在のものを残す
+    }else tplSkippedOld=true; // 旧形式（templatesV が 3 未満・無し）のテンプレートは読まず、現在のものを残す
+  }
+  const out={contacts,settings:set,scheduled},sc=st.sched;
+  return {ok:true,kind:det.kind,db:out,report:{
+    kind:det.kind,
+    exportedAt:det.kind==="v2"&&typeof root.exportedAt==="string"&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(root.exportedAt)&&!isNaN(Date.parse(root.exportedAt))?root.exportedAt:"",
+    counts:summarizeDb(out),
+    realContacts:contacts.filter(c=>c.name||c.company||c.email||c.tel||c.mobile).length,
+    skipped:{contacts:st.contacts,touchpoints:st.touchpoints,personas:st.personas,templates:st.templates,scheduled:{malformed:sc.malformed,ambiguous:sc.ambiguous,orphan:sc.orphan,badAt:sc.badAt,total:sc.malformed+sc.ambiguous+sc.orphan+sc.badAt}},
+    regenerated:st.regen,
+    fileHadKey:typeof fset.apiKey==="string"&&fset.apiKey!=="",
+    templatesAdopted:tplAdopted,templatesSkippedOld:tplSkippedOld,templatesUnreadable:tplUnreadable,personasUnreadable:pcUnreadable}};
+}
+// 保存値を next に書き換える。書き込み→読み戻し。失敗したら prev へ rollback を試みる（prev が null なら removeItem）。
+// 戻り値: "ok"／"unchanged"（失敗したが保存値は元のまま）／"rolledback"（失敗したので元に戻した）／"critical"（元に戻すことにも失敗）。成功以外では、保存値が元のままだとは保証しない。
+function commitRaw(storage,key,next,prev){
+  let threw=false,cur;
+  try{storage.setItem(key,next);}catch(e){threw=true;}
+  try{cur=storage.getItem(key);}catch(e){cur=undefined;}
+  if(!threw&&cur===next)return "ok";
+  if(cur===prev)return "unchanged";
+  try{
+    if(prev===null)storage.removeItem(key);else storage.setItem(key,prev);
+    if(storage.getItem(key)===prev)return "rolledback";
+  }catch(e){}
+  return "critical";
+}
+// 復元の確認文（内容プレビュー）。rep=parseBackup の report、cur=summarizeDb(現在)、o={dateLine, unexported, hasUndo, canUndo, currentKey}
+function restoreMessage(rep,cur,o){
+  const f=rep.counts,sk=rep.skipped,sc=sk.scheduled,rg=rep.regenerated,skip=[],L=[];
+  if(rep.realContacts===0&&cur.contacts>0)L.push("【警告】このファイルには中身のある顧客が1件もありません。復元すると現在の顧客"+cur.contacts+"件がすべて置き換わります。","");
+  L.push("現在のデータを、バックアップの内容に置き換えます。");
+  if(o.dateLine)L.push(o.dateLine);
+  L.push("顧客："+cur.contacts+"件 → "+f.contacts+"件","接点："+cur.touchpoints+"件 → "+f.touchpoints+"件","送信予約："+cur.scheduled+"件 → "+f.scheduled+"件");
+  if(sk.contacts)skip.push("顧客"+sk.contacts+"件（形式が読めない）");
+  if(sk.touchpoints)skip.push("接点"+sk.touchpoints+"件（形式が読めない）");
+  if(sc.total){
+    const w=[];
+    if(sc.orphan)w.push("宛先の顧客がいない"+sc.orphan+"件");
+    if(sc.ambiguous)w.push("顧客IDが重複していて宛先を特定できない"+sc.ambiguous+"件");
+    if(sc.badAt)w.push("日時が読めない"+sc.badAt+"件");
+    if(sc.malformed)w.push("形式が読めない"+sc.malformed+"件");
+    skip.push("送信予約"+sc.total+"件（"+w.join("／")+"）");
+  }
+  if(sk.personas)skip.push("立場"+sk.personas+"件（名前が空・形式が読めない）");
+  if(sk.templates)skip.push("テンプレート"+sk.templates+"件（形式が読めない）");
+  if(skip.length)L.push("復元しないデータ："+skip.join("、"));
+  const rn=rg.contacts+rg.touchpoints+rg.scheduled+rg.personas+rg.templates;
+  if(rn)L.push("IDを付け直したデータ："+rn+"件");
+  L.push(o.currentKey?"APIキーはバックアップに含まれません。今のキーをそのまま使います。":"APIキーはバックアップに含まれません。復元後に設定で入力してください。");
+  if(rep.fileHadKey)L.push("このファイルにはAPIキーが入っています。読み込みません。ファイルは大切に保管してください。");
+  if(rep.templatesSkippedOld)L.push("旧形式のテンプレートは復元しません（今のテンプレートをそのまま使います）。");
+  if(rep.templatesUnreadable)L.push("テンプレートは読み取れるものが無いため復元しません（今のテンプレートをそのまま使います）。");
+  if(rep.personasUnreadable)L.push("立場は読み取れるものが無いため復元しません（今の立場をそのまま使います）。");
+  if(o.unexported)L.push("","現在のデータは、先に設定の「JSONバックアップ」で書き出しておくことをおすすめします（その場合は「キャンセル」を押してください）。");
+  if(o.hasUndo)L.push("","前回の「最初の復元前に戻す」はそのまま残ります。戻した先は最初の復元の前です。");
+  if(o.canUndo)L.push("","復元の直後なら、設定の「最初の復元前に戻す」で戻せます。ただし、復元後にデータを変更したり、ページを閉じたり再読み込みしたりすると戻せなくなります。");
+  else L.push("","この復元は元に戻せません（今、保存されているデータが無いため）。");
+  L.push("","「OK」を押すと復元します。");
+  return L.join("\n");
+}
+/* ===== /backup-core ===== */
 
 /* ============ backup / import ============ */
 document.getElementById("btnBackup").onclick=exportJSON;
 function download(name,text,type){const b=new Blob([text],{type:type||"application/octet-stream"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
-function exportJSON(){download(`meishi-crm_${todayStr()}.json`,JSON.stringify(db,null,2),"application/json");toast("バックアップしました");}
-document.getElementById("impJson").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.contacts))throw 0;if(!confirm("現在のデータを置き換えます。よろしいですか？"))return;const s=d.settings||{};const cards=Array.isArray(s.myCards)?s.myCards.map(p=>({id:uid(),label:str(p&&p.label),prairie:str(p&&p.prairie)})).filter(p=>p.label):undefined;const tpls=Array.isArray(s.templates)?s.templates.map(t=>({id:uid(),channel:(t&&t.channel==="line")?"line":"email",name:str(t&&t.name)||"（無題）",subject:str(t&&t.subject),body:str(t&&t.body)})):undefined;db={contacts:d.contacts.map(sanitizeContact),settings:{apiKey:str(s.apiKey),model:str(s.model)||"claude-opus-4-8",myName:str(s.myName),myCards:cards,templates:tpls}};normalizeSettings();save();syncSettings();renderHome();renderList();toast("復元しました");}catch(_){toast("読み込めませんでした");}};r.readAsText(f);e.target.value="";});
+function exportJSON(){const raw=readRaw();if(raw===JSON.stringify(db))exportedRaw=raw;download(`meishi-crm_${todayStr()}.json`,JSON.stringify(buildBackup(db,new Date().toISOString()),null,2),"application/json");toast("書き出しました（顧客情報を含みます）");}
+// 復元: 読む→検証→内容プレビュー→古いタブ検出→書き込み（読み戻し・rollback つき）→成功してから db を切り替える。戻り値は状態の符号（テスト用）。
+function readRaw(){try{return localStorage.getItem(KEY);}catch(e){return undefined;}} // 読めない環境では undefined
+const RESTORE_NG={badjson:"読み込めませんでした（バックアップファイルではないか、ファイルが途中で切れています）",notbackup:"読み込めませんでした（名刺CRMのバックアップではありません）",unsupported:"新しい版のバックアップのため、このページでは読めません。再読み込みして最新版にしてから、もう一度お試しください",nocontacts:"読み込めませんでした（読み取れる顧客がありません）"};
+const STALE_MSG="ほかのタブやウィンドウでデータが更新されています。再読み込みしてから、もう一度お試しください";
+function commitFailed(st,ng,noun){
+  if(st==="critical")alert("重大なエラー："+noun+"の途中で保存に失敗し、元の状態への復旧にも失敗しました。このページを閉じずに、設定の「JSONバックアップ」で今のデータを書き出してください。");
+  else toast(ng+"。保存に失敗したため、"+(st==="rolledback"?"元の状態に戻しました。":"データは変わっていません。"));
+}
+function refreshUi(){try{resetUi();return true;}catch(e){return false;}} // 保存の後に画面の更新で例外が出ても、復元の結果は変えない
+function resetUi(){closeModal();filterCat="";filterPersona="";query="";document.getElementById("q").value="";syncSettings();renderHome();renderList();renderUndo();}
+function renderUndo(){const b=document.getElementById("undoBox");if(!b)return;b.innerHTML=undoRaw!==null?'<div class="warn" style="margin-top:10px">復元の直後なら、最初の復元の前の状態に戻せます。復元後にデータを変更したり、ページを閉じたり再読み込みしたりすると戻せなくなります。<div class="quick"><a onclick="undoRestore()">最初の復元前に戻す</a></div></div>':"";}
+function doRestore(text,mtime,rawOpen){
+  if(rawOpen===undefined)rawOpen=readRaw();
+  if(rawOpen===undefined){toast("保存領域を読み取れないため、復元できません");return "nostore";}
+  if(rawOpen!==null&&rawOpen!==JSON.stringify(db)){toast(STALE_MSG);return "stale";} // 開いた時点でこの画面の db が保存値と違う＝古い（下の検証・確認文は画面の db を使うため）
+  const r=parseBackup(text,{currentSettings:db.settings});
+  if(!r.ok){toast(RESTORE_NG[r.reason]);return r.reason;}
+  const rep=r.report;let dateLine="";
+  if(rep.exportedAt)dateLine="書き出し日時："+new Date(rep.exportedAt).toLocaleString("ja-JP");
+  else if(mtime)dateLine="ファイルの更新日："+new Date(mtime).toLocaleDateString("ja-JP");
+  if(!confirm(restoreMessage(rep,summarizeDb(db),{dateLine,unexported:rawOpen!==null&&rawOpen!==exportedRaw,hasUndo:undoRaw!==null&&rawOpen===afterRaw,canUndo:rawOpen!==null,currentKey:!!db.settings.apiKey}))){toast("復元を取りやめました");return "cancel";}
+  if(readRaw()!==rawOpen){toast(STALE_MSG);return "stale";}
+  const cand=r.db;normalizeSettings(cand);
+  const next=JSON.stringify(cand),st=commitRaw(localStorage,KEY,next,rawOpen);
+  if(st!=="ok"){commitFailed(st,"復元できませんでした","復元");return st;}
+  db=cand;
+  // 前回の「戻す」がまだ使えるうちは最初の復元の前を守る（連続して復元しても上書きしない）。すでに使えなくなっていたら（復元後に保存した）、今の保存値から新しく始める。
+  if(afterRaw===null||rawOpen!==afterRaw)undoRaw=rawOpen;
+  afterRaw=next;
+  toast("復元しました（顧客"+cand.contacts.length+"件）"+(refreshUi()?"":"。画面を更新できませんでした。再読み込みしてください"));return "ok";
+}
+// 「最初の復元前に戻す」: 現在の保存値が復元直後の保存値（afterRaw）と同じときだけ戻す（復元後の変更を失わないため）。
+function undoRestore(){
+  if(undoRaw===null)return "none";
+  const NG="復元後にデータが変更されています。現在の変更を失うため、復元前には戻せません。";
+  if(readRaw()!==afterRaw){toast(NG);return "changed";}
+  if(!confirm("最初の復元の前の状態に戻します。よろしいですか？"))return "cancel";
+  const cur=readRaw();
+  if(cur!==afterRaw){toast(NG);return "changed";}
+  let o;try{o=JSON.parse(undoRaw);}catch(e){o=null;}
+  if(!isObj(o)||!Array.isArray(o.contacts)){toast("復元前のデータを読み込めませんでした");return "badundo";}
+  o.settings=isObj(o.settings)?o.settings:{};o.settings.apiKey=db.settings.apiKey; // キーは今のものを使う
+  normalizeSettings(o);
+  const next=JSON.stringify(o),st=commitRaw(localStorage,KEY,next,cur);
+  if(st!=="ok"){commitFailed(st,"復元前に戻せませんでした","復元前に戻す操作");return st;}
+  db=o;undoRaw=afterRaw=null;
+  toast("復元前の状態に戻しました"+(refreshUi()?"":"。画面を更新できませんでした。再読み込みしてください"));return "ok";
+}
+document.getElementById("impJson").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const raw0=readRaw();const r=new FileReader();r.onload=()=>doRestore(r.result,f.lastModified,raw0);r.onerror=()=>toast("ファイルを読み込めませんでした");r.readAsText(f);e.target.value="";});
 
 const CSV_COLS=[["company","会社名"],["name","氏名"],["title","役職"],["tel","代表電話"],["fax","FAX"],["mobile","携帯電話"],["email","メール"],["address","住所"],["url","URL"],["prairie","プレーリーURL"],["persona","立場"],["category","カテゴリ"],["referrer","紹介元"],["memo","メモ"],["createdAt","記録日時"]];
 function csvCell(v){v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}

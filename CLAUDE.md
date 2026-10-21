@@ -8,7 +8,7 @@
 > を引き継いだ**後継・発展先**。名刺管理の新規開発はここで行う。オーナーは旧システムの名刺機能を現在も一部使っていると申告している（未照合）。この repo のアプリが実際に使われているかは未確認（`AI_HANDOFF.md` §2・§8）だが、公開サイトとして稼働し、`main` への push が即反映されるので、壊さない・勝手に作り替えない。
 
 ## このリポジトリ
-- GitHub `t-fujiya-SD/meishi-crm`。**PUBLIC**（誰でも読める）。アプリ本体は `index.html` 1つだけ（HTML・CSS・JS を1ファイルに同梱。ほかに追跡するのは運用文書 `CLAUDE.md`・`AI_HANDOFF.md` のみ。外部ライブラリ・ビルド・テスト・CI・README・`.gitignore` は無い）。
+- GitHub `t-fujiya-SD/meishi-crm`。**PUBLIC**（誰でも読める）。アプリ本体は `index.html` 1つだけ（HTML・CSS・JS を1ファイルに同梱。ほかに追跡するのは運用文書 `CLAUDE.md`・`AI_HANDOFF.md` と、回帰テスト `tests/`。外部ライブラリ・ビルド・CI・README・`.gitignore` は無い）。
 - 公開は GitHub Pages（legacy ビルド・`main` の `/`）。**`main` へ push すると約40秒で本番公開**になる。`main` にブランチ保護・ruleset は無い（押せば止まらない）。作業ブランチの push では公開されない（2026-10-20 にこの repo で実測: ブランチを push しても Pages のビルドは増えなかった。Pages の環境も `main`／`gh-pages` だけを許可している）。
 - データはサーバーに無く、利用者のブラウザの `localStorage`（キー `meishi_crm_v1`）に入る。認証は無い。Anthropic の API キーも利用者が自分で設定画面に入力し、同じ場所に保存される。
 - 公開サイトのオリジン（`t-fujiya-sd.github.io`）は、このアカウントの他の公開コンテンツと共有される。`localStorage` はオリジン単位なので、**同一オリジン上の他コンテンツとの分離に注意が必要**。
@@ -28,7 +28,7 @@
 1. `main` へ直接実装しない。
 2. fetch 済みの `origin/main` から `feature/…`・`fix/…`・`chore/…` のブランチを切る。
 3. 依頼の範囲を勝手に広げない。広げないと終わらないなら、調査結果を出して止まる。
-4. 検証する。**このアプリにテスト・ビルド・CI は無い**。`index.html` を変えるときは、`git diff --check` ＋ ローカル起動（`localhost:8147`）で**ダミーデータだけ**を使って該当機能を通す。純関数は Node の `vm` ＋ DOM スタブで単体確認できる（ハーネスは repo に無い。骨子: `index.html` の `<script>` の中身を取り出す → `document`・`localStorage`・`fetch` を差したスタブの `vm` コンテキストで実行 → ダミー要素に `onclick` などを受けさせて呼ぶ。`fetch` は必ず例外を投げるスタブにし、実キーを使わない）。実機（iPhone／Android）の挙動は未確認が多い＝確かめていないことは「未確認」と書く。
+4. 検証する。**このアプリにビルド・CI は無い。回帰テストは `tests/` にある**（`node --test tests/*.test.mjs`・Node 標準機能だけ・依存なし。実測は Node 26。`node:test` を使うので Node 18 以上が前提だが、18・20 での実行は未確認。`index.html` のバックアップ用の純関数ブロック〔`backup-core`〕を直接取り出して検証し、`<script>` 全体も DOM・`localStorage` のスタブつき `vm` で実行する。`fetch` は必ず例外を投げるスタブ）。`index.html` を変えるときは、このテストと `git diff --check` ＋ ローカル起動（`localhost:8147`）で**ダミーデータだけ**を使って該当機能を通す。テストにも実データ・実キー・絶対パスを入れない（フィクスチャは実行時に架空の値で作る）。実機（iPhone／Android）の挙動は未確認が多い＝確かめていないことは「未確認」と書く。
 5. `AI_HANDOFF.md` を現在地へ上書きする（書き方は下の「AI_HANDOFF.md の書き方」）。
 6. commit する。**ステージはファイルを名指しする**（`git add -A`・`git add .`・`git commit -a` は使わない。作業フォルダにバックアップ JSON・CSV・確認用の複製が紛れうる）。
 7. 作業ブランチを origin へ push する。**`main` へは push しない**。push した内容は PUBLIC repo で誰でも読める。
