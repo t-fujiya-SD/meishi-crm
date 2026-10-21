@@ -324,7 +324,7 @@
 const KEY="meishi_crm_v1";
 const DEFAULT_CATS=["取引先","見込み客","士業・専門家","メディア","協力会社","その他"];
 const TP_TYPES=["会う","電話","メール","LINE","会食","その他"];
-let undoRaw=null,afterRaw=null,exportedRaw=null; // 復元前に戻す用（メモリ内のみ）と、最後に書き出した時点の保存値。let db=load() より前に宣言する
+let undoRaw=null,afterRaw=null,exportedRaw=null; // 復元前に戻す用（メモリ内のみ）と、保存値と同じ内容の db を最後に書き出したときの保存値。let db=load() より前に宣言する
 let db=load();normalizeSettings();
 
 function load(){
@@ -1089,25 +1089,28 @@ function parseBackup(text,ctx){
   set.apiKey=typeof cur.apiKey==="string"?cur.apiKey:"";
   if(typeof fset.model==="string"&&/^[\w.\-]{1,64}$/.test(fset.model))set.model=fset.model; // モデル名は英数字・._- だけ採用する
   if(typeof fset.myName==="string")set.myName=fset.myName;
+  // 立場・テンプレート: 空配列はそのまま採用する。要素があるのに有効なものが 0 件なら、現在のものを残す（壊れたファイルで消さない）
+  let pcUnreadable=false,tplAdopted=false,tplSkippedOld=false,tplUnreadable=false;
   if(Array.isArray(fset.myCards)){
-    const pu=new Set();set.myCards=[];
+    const pu=new Set(),cards=[];
     fset.myCards.forEach(p=>{
       const label=isObj(p)?textOf(p.label):"";
       if(label===""){st.personas++;return;}
       const id=keepId(p.id,pu,mk);if(id!==p.id)st.regen.personas++;
-      set.myCards.push({id,label,prairie:textOf(p.prairie)});
+      cards.push({id,label,prairie:textOf(p.prairie)});
     });
+    if(cards.length||!fset.myCards.length)set.myCards=cards;else pcUnreadable=true;
   }
-  let tplAdopted=false,tplSkippedOld=false;
   if(Array.isArray(fset.templates)){
     if(typeof fset.templatesV==="number"&&isFinite(fset.templatesV)&&fset.templatesV>=3){
-      const tu=new Set();set.templates=[];
+      const tu=new Set(),tpls=[];
       fset.templates.forEach(t=>{
         if(!isObj(t)){st.templates++;return;}
         const id=keepId(t.id,tu,mk);if(id!==t.id)st.regen.templates++;
-        set.templates.push({id,channel:t.channel==="line"?"line":"email",name:textOf(t.name)||"（無題）",subject:textOf(t.subject),body:textOf(t.body)});
+        tpls.push({id,channel:t.channel==="line"?"line":"email",name:textOf(t.name)||"（無題）",subject:textOf(t.subject),body:textOf(t.body)});
       });
-      set.templatesV=fset.templatesV;tplAdopted=true;
+      if(tpls.length||!fset.templates.length){set.templates=tpls;set.templatesV=fset.templatesV;tplAdopted=true;}
+      else tplUnreadable=true; // templatesV も現在のものを残す
     }else tplSkippedOld=true; // 旧形式（templatesV が 3 未満・無し）のテンプレートは読まず、現在のものを残す
   }
   const out={contacts,settings:set,scheduled},sc=st.sched;
@@ -1119,7 +1122,7 @@ function parseBackup(text,ctx){
     skipped:{contacts:st.contacts,touchpoints:st.touchpoints,personas:st.personas,templates:st.templates,scheduled:{malformed:sc.malformed,ambiguous:sc.ambiguous,orphan:sc.orphan,badAt:sc.badAt,total:sc.malformed+sc.ambiguous+sc.orphan+sc.badAt}},
     regenerated:st.regen,
     fileHadKey:typeof fset.apiKey==="string"&&fset.apiKey!=="",
-    templatesAdopted:tplAdopted,templatesSkippedOld:tplSkippedOld}};
+    templatesAdopted:tplAdopted,templatesSkippedOld:tplSkippedOld,templatesUnreadable:tplUnreadable,personasUnreadable:pcUnreadable}};
 }
 // 保存値を next に書き換える。書き込み→読み戻し。失敗したら prev へ rollback を試みる（prev が null なら removeItem）。
 // 戻り値: "ok"／"unchanged"（失敗したが保存値は元のまま）／"rolledback"（失敗したので元に戻した）／"critical"（元に戻すことにも失敗）。成功以外では、保存値が元のままだとは保証しない。
@@ -1160,6 +1163,8 @@ function restoreMessage(rep,cur,o){
   L.push(o.currentKey?"APIキーはバックアップに含まれません。今のキーをそのまま使います。":"APIキーはバックアップに含まれません。復元後に設定で入力してください。");
   if(rep.fileHadKey)L.push("このファイルにはAPIキーが入っています。読み込みません。ファイルは大切に保管してください。");
   if(rep.templatesSkippedOld)L.push("旧形式のテンプレートは復元しません（今のテンプレートをそのまま使います）。");
+  if(rep.templatesUnreadable)L.push("テンプレートは読み取れるものが無いため復元しません（今のテンプレートをそのまま使います）。");
+  if(rep.personasUnreadable)L.push("立場は読み取れるものが無いため復元しません（今の立場をそのまま使います）。");
   if(o.unexported)L.push("","現在のデータは、先に設定の「JSONバックアップ」で書き出しておくことをおすすめします（その場合は「キャンセル」を押してください）。");
   if(o.hasUndo)L.push("","前回の「最初の復元前に戻す」はそのまま残ります。戻した先は最初の復元の前です。");
   if(o.canUndo)L.push("","復元の直後なら、設定の「最初の復元前に戻す」で戻せます。ただし、復元後にデータを変更したり、ページを閉じたり再読み込みしたりすると戻せなくなります。");
@@ -1172,7 +1177,7 @@ function restoreMessage(rep,cur,o){
 /* ============ backup / import ============ */
 document.getElementById("btnBackup").onclick=exportJSON;
 function download(name,text,type){const b=new Blob([text],{type:type||"application/octet-stream"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
-function exportJSON(){exportedRaw=readRaw();download(`meishi-crm_${todayStr()}.json`,JSON.stringify(buildBackup(db,new Date().toISOString()),null,2),"application/json");toast("書き出しました（顧客情報を含みます）");}
+function exportJSON(){const raw=readRaw();if(raw===JSON.stringify(db))exportedRaw=raw;download(`meishi-crm_${todayStr()}.json`,JSON.stringify(buildBackup(db,new Date().toISOString()),null,2),"application/json");toast("書き出しました（顧客情報を含みます）");}
 // 復元: 読む→検証→内容プレビュー→古いタブ検出→書き込み（読み戻し・rollback つき）→成功してから db を切り替える。戻り値は状態の符号（テスト用）。
 function readRaw(){try{return localStorage.getItem(KEY);}catch(e){return undefined;}} // 読めない環境では undefined
 const RESTORE_NG={badjson:"読み込めませんでした（バックアップファイルではないか、ファイルが途中で切れています）",notbackup:"読み込めませんでした（名刺CRMのバックアップではありません）",unsupported:"新しい版のバックアップのため、このページでは読めません。再読み込みして最新版にしてから、もう一度お試しください",nocontacts:"読み込めませんでした（読み取れる顧客がありません）"};
@@ -1187,6 +1192,7 @@ function renderUndo(){const b=document.getElementById("undoBox");if(!b)return;b.
 function doRestore(text,mtime,rawOpen){
   if(rawOpen===undefined)rawOpen=readRaw();
   if(rawOpen===undefined){toast("保存領域を読み取れないため、復元できません");return "nostore";}
+  if(rawOpen!==null&&rawOpen!==JSON.stringify(db)){toast(STALE_MSG);return "stale";} // 開いた時点でこの画面の db が保存値と違う＝古い（下の検証・確認文は画面の db を使うため）
   const r=parseBackup(text,{currentSettings:db.settings});
   if(!r.ok){toast(RESTORE_NG[r.reason]);return r.reason;}
   const rep=r.report;let dateLine="";

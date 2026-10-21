@@ -450,15 +450,48 @@ test('parseBackup: 読み込んだ結果を書き出して読み直しても同�
   assert.equal(second.report.skipped.scheduled.total, 0);
 });
 
-// S1 時点の仕様の記録: 無効な要素しかない配列でも、配列がある以上は現在の値を置き換える。
-// 件数は report.skipped に出る。S2 の確認文でこれをどう見せるか・現在値を残すかは、S2 のレビューで決める。
-test('parseBackup: 無効な要素だけの templates / myCards は空配列になり、件数は報告に出る（S1 時点の仕様）', () => {
+// templates / myCards: 空配列＝明示的な空として採用／要素があるのに有効なものが 0 件＝現在の値を残す／混在＝有効なものだけ採用し、除外した件数を報告に出す
+test('parseBackup: 要素があるのに有効なものが 0 件の templates / myCards は、現在の値を残す（templatesV も現在のまま）', () => {
   const cur = { templates: makeTemplates(), templatesV: 3, myCards: [{ id: 'q', label: '現在の屋号', prairie: '' }] };
-  const r = okParse({ contacts: [], settings: { templates: [null, 'x'], templatesV: 3, myCards: [null, { label: '' }] } }, { currentSettings: cur });
-  assert.deepEqual(plain(r.db.settings.templates), []);
-  assert.deepEqual(plain(r.db.settings.myCards), []);
+  const r = okParse(v2({ contacts: [], settings: { templates: [null, 'x'], templatesV: 4, myCards: [null, { label: '' }] } }), { currentSettings: cur });
+  assert.deepEqual(plain(r.db.settings.templates), plain(cur.templates));
+  assert.equal(r.db.settings.templatesV, 3);
+  assert.deepEqual(plain(r.db.settings.myCards), plain(cur.myCards));
   assert.equal(r.report.skipped.templates, 2);
   assert.equal(r.report.skipped.personas, 2);
+  assert.equal(r.report.templatesAdopted, false);
+  assert.equal(r.report.templatesUnreadable, true);
+  assert.equal(r.report.personasUnreadable, true);
+  assert.deepEqual(plain(r.report.counts), { contacts: 0, touchpoints: 0, scheduled: 0, templates: 2, personas: 1 });
+});
+
+test('parseBackup: 空配列の templates / myCards は、明示的な空として採用する', () => {
+  const cur = { templates: makeTemplates(), templatesV: 3, myCards: [{ id: 'q', label: '現在の屋号', prairie: '' }] };
+  const r = okParse(v2({ contacts: [], settings: { templates: [], templatesV: 4, myCards: [] } }), { currentSettings: cur });
+  assert.deepEqual(plain(r.db.settings.templates), []);
+  assert.equal(r.db.settings.templatesV, 4);
+  assert.deepEqual(plain(r.db.settings.myCards), []);
+  assert.equal(r.report.templatesAdopted, true);
+  assert.equal(r.report.templatesUnreadable, false);
+  assert.equal(r.report.personasUnreadable, false);
+});
+
+test('parseBackup: 有効と無効が混在する templates / myCards は、有効なものだけ採用し、除外した件数を報告に出す', () => {
+  const cur = { templates: [{ id: 'keep', channel: 'email', name: '現在', subject: '', body: '' }], templatesV: 3, myCards: [{ id: 'q', label: '現在の屋号', prairie: '' }] };
+  const r = okParse(v2({ contacts: [], settings: { templates: [null, { id: 't', name: 'n' }], templatesV: 3, myCards: [{ label: '' }, { id: 'p', label: '屋号' }] } }), { currentSettings: cur });
+  assert.deepEqual(plain(r.db.settings.templates).map((t) => t.id), ['t']);
+  assert.deepEqual(plain(r.db.settings.myCards).map((p) => p.label), ['屋号']);
+  assert.equal(r.report.skipped.templates, 1);
+  assert.equal(r.report.skipped.personas, 1);
+  assert.equal(r.report.templatesUnreadable, false);
+  assert.equal(r.report.personasUnreadable, false);
+});
+
+test('parseBackup: 旧形式（templatesV が 3 未満）のテンプレートは、中身が読めなくても「旧形式」として扱う（読めないとは報告しない）', () => {
+  const r = okParse({ contacts: [], settings: { templates: [null], templatesV: 2 } }, { currentSettings: { templates: makeTemplates(), templatesV: 3 } });
+  assert.equal(r.report.templatesSkippedOld, true);
+  assert.equal(r.report.templatesUnreadable, false);
+  assert.equal(r.report.skipped.templates, 0);
 });
 
 // ---------- commitRaw（書込→読み戻し→rollback） ----------
@@ -527,7 +560,19 @@ test('restoreMessage: 置き換え・件数・APIキー・戻し方を必ず含�
   for (const s of ['現在のデータを、バックアップの内容に置き換えます。', '顧客：2件 → 2件', '接点：4件 → 4件', '送信予約：2件 → 2件', 'APIキーはバックアップに含まれません。今のキーをそのまま使います。', '「最初の復元前に戻す」で戻せます', '「OK」を押すと復元します。']) {
     assert.ok(m.includes(s), s);
   }
-  for (const s of ['復元しないデータ', '【警告】', 'IDを付け直した', '旧形式のテンプレート', 'おすすめします', '前回の']) assert.equal(m.includes(s), false, s);
+  for (const s of ['復元しないデータ', '【警告】', 'IDを付け直した', '旧形式のテンプレート', '読み取れるものが無い', 'おすすめします', '前回の']) assert.equal(m.includes(s), false, s);
+});
+
+test('restoreMessage: 要素があるのに読み取れる立場・テンプレートが無いときは、今のものを使うと知らせる。空配列・混在では出さない', () => {
+  const T = 'テンプレートは読み取れるものが無いため復元しません（今のテンプレートをそのまま使います）。';
+  const P = '立場は読み取れるものが無いため復元しません（今の立場をそのまま使います）。';
+  const bad = msg(v2({ contacts: [], settings: { templates: [null], templatesV: 3, myCards: [{ label: '' }] } }), makeDb());
+  assert.ok(bad.includes(T)); assert.ok(bad.includes(P));
+  assert.ok(bad.includes('復元しないデータ：立場1件（名前が空・形式が読めない）、テンプレート1件（形式が読めない）'));
+  for (const s of [{ templates: [], templatesV: 3, myCards: [] }, { templates: [null, { name: 'n' }], templatesV: 3, myCards: [{ label: '' }, { label: 'x' }] }]) {
+    const m = msg(v2({ contacts: [], settings: s }), makeDb());
+    assert.equal(m.includes(T), false); assert.equal(m.includes(P), false);
+  }
 });
 
 test('restoreMessage: 各行は、そうなるときだけ出る', () => {

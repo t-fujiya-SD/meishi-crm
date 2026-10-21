@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadApp, loadCore, readIndex, coreSource, plain, DUMMY_KEY, KEY } from './helpers.mjs';
-import { NOW, counter, makeDb, legacyGenerations } from './fixtures.mjs';
+import { NOW, counter, makeDb, makeContact, legacyGenerations } from './fixtures.mjs';
 
 const lastToast = (app) => app.log.toasts[app.log.toasts.length - 1];
 const exported = (app) => { app.run('exportJSON()'); const d = app.log.downloads; return { file: d[d.length - 1], json: JSON.parse(d[d.length - 1].text) }; };
@@ -134,6 +134,21 @@ test('exportJSON: 書き出した時点の保存値を exportedRaw に記録す�
   assert.equal(app.run('exportedRaw'), null);
   app.run('exportJSON()');
   assert.equal(app.run('exportedRaw'), app.store.get(KEY));
+});
+
+test('exportJSON: 書き出す db と保存値が一致しないとき（古いタブ）は exportedRaw を記録しない', () => {
+  const app = loadApp({ seed: makeDb() });
+  app.run('exportJSON()');
+  const first = app.run('exportedRaw');
+  const newer = JSON.stringify({ ...makeDb(), contacts: [makeContact(5)] });
+  app.store.set(KEY, newer); // 別タブが保存した
+  app.run('exportJSON()');
+  assert.equal(app.log.downloads.length, 2, '書き出し自体はする（中身はこの画面の db）');
+  assert.notEqual(app.run('exportedRaw'), newer, '別タブの保存値を「書き出した」と記録しない');
+  assert.equal(app.run('exportedRaw'), first, '前に一致して書き出した記録はそのまま');
+  const unsaved = loadApp({ seed: makeDb() });
+  unsaved.run('db.settings.myName="保存していない変更";exportJSON()');
+  assert.equal(unsaved.run('exportedRaw'), null, '保存していない変更を含む db を書き出しても、保存値を書き出したとは記録しない');
 });
 
 // ---------- 静的な確認 ----------

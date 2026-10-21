@@ -22,7 +22,7 @@ const restore = (app, text, mtime) => app.call('doRestore', text, mtime);
 // ---------- 復元が成功する場合 ----------
 test('復元: 現在のメモリの設定に欠けがあっても、欠けたまま保存しない（保存前に normalizeSettings で整える）', () => {
   const app = loadApp({ seed: makeDb() });
-  app.run('db.settings.templates=undefined;db.settings.templatesV=undefined');
+  app.run('db.settings.templates=undefined;db.settings.templatesV=undefined;save()'); // 保存値も同じ形にする（保存せずに変えると、古い画面とみなして止まる）
   assert.equal(restore(app, JSON.stringify({ contacts: [{ id: 'a', name: 'x' }] })), 'ok');
   assert.ok(Array.isArray(stored(app).settings.templates) && stored(app).settings.templates.length > 0);
   assert.equal(stored(app).settings.templatesV, 3);
@@ -106,6 +106,69 @@ test('復元: 確認している間に別タブが保存値を書き換えたら
   assert.equal(app.log.setCalls, calls);
   assert.deepEqual(plain(app.run('db')), dbBefore);
   assert.match(lastToast(app), /ほかのタブやウィンドウでデータが更新されています/);
+});
+
+test('復元: 開いた時点で別タブが保存値を更新していたら（APIキー・テンプレ）、確認も書き込みもせず中止する（古いタブ検出）', () => {
+  const app = loadApp({ seed: makeDb() });
+  const newer = makeDb({ key: 'NEWER-DUMMY' });
+  newer.settings.templates = [{ id: 'nt', channel: 'email', name: '別タブで追加', subject: '', body: '' }];
+  const changed = JSON.stringify(newer);
+  app.store.set(KEY, changed); // 別タブが保存した
+  const calls = app.log.setCalls, dbBefore = plain(app.run('db'));
+  assert.equal(restore(app, v2text(other())), 'stale');
+  assert.equal(app.log.confirms.length, 0, '古い db で作った確認文を出さない');
+  assert.equal(app.store.get(KEY), changed, '別タブのキー・テンプレを古い値で戻さない');
+  assert.equal(app.log.setCalls, calls);
+  assert.deepEqual(plain(app.run('db')), dbBefore);
+  assert.equal(app.run('undoRaw'), null);
+  assert.match(lastToast(app), /ほかのタブやウィンドウでデータが更新されています/);
+});
+
+test('ファイル選択: 選ぶ前に別タブが保存していたら、確認を出さずに中止する', () => {
+  const app = loadApp({ seed: makeDb() });
+  app.store.set(KEY, JSON.stringify({ ...makeDb(), contacts: [makeContact(5)] }));
+  const calls = app.log.setCalls;
+  app.pickRestoreFile(v2text(other()));
+  assert.equal(app.log.confirms.length, 0);
+  assert.match(lastToast(app), /ほかのタブやウィンドウでデータが更新されています/);
+  assert.equal(app.log.setCalls, calls);
+});
+
+test('復元: 旧形式の保存値で起動しても古いとみなさない（起動時の save() で、整えた db が保存値になる）', () => {
+  const { gen1, gen3 } = legacyGenerations(); // テンプレ・予約が無い／templatesV が 2＝起動時に normalizeSettings が補う
+  for (const seed of [gen1, gen3]) {
+    const app = loadApp({ seed });
+    assert.equal(app.store.get(KEY), JSON.stringify(app.run('db')), '前提: 起動後は画面の db と保存値が一致する');
+    assert.equal(restore(app, v2text(other())), 'ok');
+  }
+});
+
+test('復元: 画面の db と保存値が食い違えば、この画面の変更でも中止する（保存していない変更・別タブの書き戻し）', () => {
+  const unsaved = loadApp({ seed: makeDb() });
+  unsaved.run('db.settings.myName="保存していない変更"');
+  assert.equal(restore(unsaved, v2text(other())), 'stale');
+  assert.equal(unsaved.log.confirms.length, 0);
+  const reverted = loadApp({ seed: makeDb() });
+  const boot = reverted.store.get(KEY);
+  reverted.run('db.settings.myName="この画面で変更";save()');
+  reverted.store.set(KEY, boot); // 別タブが前の保存値を書き戻した
+  assert.equal(restore(reverted, v2text(other())), 'stale');
+  assert.equal(reverted.store.get(KEY), boot);
+});
+
+test('復元: 要素があるのに読み取れる立場・テンプレートが無いファイルでは、今の立場・テンプレートを残す', () => {
+  const app = loadApp({ seed: makeDb() });
+  const before = plain(stored(app).settings);
+  const file = other();
+  file.settings.templates = [null, 'x'];
+  file.settings.myCards = [{ label: '' }, 5];
+  assert.equal(restore(app, v2text(file)), 'ok');
+  assert.deepEqual(stored(app).settings.templates, before.templates);
+  assert.equal(stored(app).settings.templatesV, before.templatesV);
+  assert.deepEqual(stored(app).settings.myCards, before.myCards);
+  assert.match(app.log.confirms[0], /テンプレートは読み取れるものが無いため復元しません（今のテンプレートをそのまま使います）。/);
+  assert.match(app.log.confirms[0], /立場は読み取れるものが無いため復元しません（今の立場をそのまま使います）。/);
+  assert.match(app.log.confirms[0], /復元しないデータ：.*立場2件（名前が空・形式が読めない）、テンプレート2件（形式が読めない）/);
 });
 
 test('復元: 読めないファイルは、確認も書き込みもなしで断る', () => {
