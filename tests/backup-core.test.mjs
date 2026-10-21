@@ -354,6 +354,18 @@ test('parseBackup: exportedAt は ISO 形式のときだけ報告に出す', () 
   assert.equal(okParse({ contacts: [] }).report.exportedAt, '', '旧形式には書き出し日時が無い');
 });
 
+test('parseBackup: 暦として成り立たない exportedAt は報告に出さない', () => {
+  assert.equal(okParse(v2({ contacts: [] }, { exportedAt: '2026-13-45T99:99:99Z' })).report.exportedAt, '');
+});
+
+test('parseBackup: モデル名は英数字と ._- の 1〜64 文字だけ採用する（それ以外は現在のモデルを残す）', () => {
+  const m = (model) => okParse({ contacts: [], settings: { model } }, { currentSettings: { model: 'cur' } }).db.settings.model;
+  assert.equal(m('claude-sonnet-5'), 'claude-sonnet-5');
+  assert.equal(m('claude-haiku-4-5'), 'claude-haiku-4-5');
+  assert.equal(m('a.b_c-d'), 'a.b_c-d');
+  for (const bad of ['', 'MARKER<img src=x>', 'a b', 'x'.repeat(65), 'モデル', 'a\nb', 5, null]) assert.equal(m(bad), 'cur', String(bad));
+});
+
 test('parseBackup: 入力の現在設定を書き換えない', () => {
   const cur = { apiKey: 'K', myCards: [{ id: 'a', label: 'x', prairie: '' }], templates: makeTemplates(), templatesV: 3 };
   const before = plain(cur);
@@ -447,6 +459,104 @@ test('parseBackup: 無効な要素だけの templates / myCards は空配列に�
   assert.deepEqual(plain(r.db.settings.myCards), []);
   assert.equal(r.report.skipped.templates, 2);
   assert.equal(r.report.skipped.personas, 2);
+});
+
+// ---------- commitRaw（書込→読み戻し→rollback） ----------
+const mem = (init = {}) => { // 保存先の代用品。act(n, k, v) で失敗を作る
+  const m = new Map(Object.entries(init)); let n = 0;
+  const s = { m, act: null, failGet: false,
+    getItem: (k) => { if (s.failGet) throw new Error('read'); return m.has(k) ? m.get(k) : null; },
+    setItem: (k, v) => { n++; const a = s.act && s.act(n, k, v); if (a === 'throw') throw new Error('quota'); if (a === 'drop') return; if (a === 'storeThrow') { m.set(k, String(v)); throw new Error('quota'); } m.set(k, a && a.store !== undefined ? a.store : String(v)); },
+    removeItem: (k) => { m.delete(k); } };
+  return s;
+};
+
+test('commitRaw: 書けて読み戻せれば ok', () => {
+  const s = mem({ k: 'old' });
+  assert.equal(core.commitRaw(s, 'k', 'new', 'old'), 'ok');
+  assert.equal(s.m.get('k'), 'new');
+  assert.equal(core.commitRaw(mem({ k: 'same' }), 'k', 'same', 'same'), 'ok', '同じ内容でも ok');
+});
+
+test('commitRaw: 書き込みが例外・黙って保存されないとき、保存値が元のままなら unchanged', () => {
+  for (const act of ['throw', 'drop']) {
+    const s = mem({ k: 'old' }); s.act = () => act;
+    assert.equal(core.commitRaw(s, 'k', 'new', 'old'), 'unchanged', act);
+    assert.equal(s.m.get('k'), 'old', act);
+  }
+});
+
+test('commitRaw: 読み戻しが違う値なら、元の値に rollback する（rolledback）', () => {
+  const s = mem({ k: 'old' }); s.act = (n) => (n === 1 ? { store: 'garbage' } : undefined);
+  assert.equal(core.commitRaw(s, 'k', 'new', 'old'), 'rolledback');
+  assert.equal(s.m.get('k'), 'old');
+});
+
+test('commitRaw: 書き込みが例外なら、読み戻しが next と同じでも ok にせず、元の値へ戻す（保守的）', () => {
+  const s = mem({ k: 'old' }); s.act = (n) => (n === 1 ? 'storeThrow' : undefined);
+  assert.equal(core.commitRaw(s, 'k', 'new', 'old'), 'rolledback');
+  assert.equal(s.m.get('k'), 'old');
+});
+
+test('commitRaw: 元の値が無かった（null）場合の rollback は removeItem', () => {
+  const s = mem(); s.act = () => ({ store: 'garbage' });
+  assert.equal(core.commitRaw(s, 'k', 'new', null), 'rolledback');
+  assert.equal(s.m.has('k'), false);
+  const t = mem(); t.act = () => 'throw';
+  assert.equal(core.commitRaw(t, 'k', 'new', null), 'unchanged');
+});
+
+test('commitRaw: rollback も失敗したら critical（保存値が元のままだとは保証しない）', () => {
+  const s = mem({ k: 'old' }); s.act = (n) => (n === 1 ? { store: 'garbage' } : 'throw');
+  assert.equal(core.commitRaw(s, 'k', 'new', 'old'), 'critical');
+  assert.equal(s.m.get('k'), 'garbage');
+  const r = mem({ k: 'old' }); r.act = () => ({ store: 'garbage' }); // rollback も別の値になる
+  assert.equal(core.commitRaw(r, 'k', 'new', 'old'), 'critical');
+  const g = mem({ k: 'old' }); g.failGet = true; // 読み戻しができない
+  assert.equal(core.commitRaw(g, 'k', 'new', 'old'), 'critical');
+});
+
+// ---------- restoreMessage（確認文） ----------
+const msg = (file, cur, o = {}, ctx = {}) => {
+  const r = okParse(file, ctx);
+  return core.restoreMessage(r.report, plain(core.summarizeDb(cur)), { dateLine: '', unexported: false, hasUndo: false, canUndo: true, currentKey: true, ...o });
+};
+
+test('restoreMessage: 置き換え・件数・APIキー・戻し方を必ず含む', () => {
+  const m = msg(v2(plain(makeDb())), makeDb());
+  for (const s of ['現在のデータを、バックアップの内容に置き換えます。', '顧客：2件 → 2件', '接点：4件 → 4件', '送信予約：2件 → 2件', 'APIキーはバックアップに含まれません。今のキーをそのまま使います。', '「最初の復元前に戻す」で戻せます', '「OK」を押すと復元します。']) {
+    assert.ok(m.includes(s), s);
+  }
+  for (const s of ['復元しないデータ', '【警告】', 'IDを付け直した', '旧形式のテンプレート', 'おすすめします', '前回の']) assert.equal(m.includes(s), false, s);
+});
+
+test('restoreMessage: 各行は、そうなるときだけ出る', () => {
+  const sched = [{ id: 's', contactId: 'gone', at: '2026-03-01T09:00' }];
+  const m = msg({ contacts: [{ name: 'a' }, null], scheduled: sched, settings: { apiKey: 'x', templates: [], templatesV: 1 } }, makeDb(), { dateLine: 'ファイルの更新日：2026/1/1', unexported: true, hasUndo: true, currentKey: false });
+  for (const s of ['ファイルの更新日：2026/1/1', '復元しないデータ：顧客1件（形式が読めない）、送信予約1件（宛先の顧客がいない1件）', 'IDを付け直したデータ：1件', '復元後に設定で入力してください', 'このファイルにはAPIキーが入っています。読み込みません', '旧形式のテンプレートは復元しません', '先に設定の「JSONバックアップ」で書き出しておくことをおすすめします', '前回の「最初の復元前に戻す」はそのまま残ります']) {
+    assert.ok(m.includes(s), s);
+  }
+  assert.equal(m.includes('今のキーをそのまま使います'), false);
+});
+
+test('restoreMessage: 戻せない復元（今、保存データが無い）では、戻せるとは案内せず、戻せないと書く', () => {
+  const m = msg({ contacts: [{ name: 'a' }] }, { contacts: [], settings: {} }, { canUndo: false });
+  assert.equal(m.includes('最初の復元前に戻す'), false);
+  assert.ok(m.includes('この復元は元に戻せません（今、保存されているデータが無いため）。'));
+  assert.ok(m.endsWith('「OK」を押すと復元します。'));
+});
+
+test('restoreMessage: 中身のある顧客が 0 件で現在のデータがあるとき、先頭に警告。現在が空なら出さない', () => {
+  assert.ok(msg({ contacts: [{}] }, makeDb()).startsWith('【警告】このファイルには中身のある顧客が1件もありません。復元すると現在の顧客2件がすべて置き換わります。\n\n現在のデータを'));
+  assert.equal(msg({ contacts: [] }, { contacts: [], settings: {} }).includes('【警告】'), false);
+});
+
+test('restoreMessage: 復元しない予約の理由を、種類ごとの件数で出す', () => {
+  const c = [{ id: 'ok' }, { id: 'dup' }, { id: 'dup' }];
+  const sch = [{ id: 'a', contactId: 'none', at: '2026-03-01T09:00' }, { id: 'b', contactId: 'dup', at: '2026-03-01T09:00' }, { id: 'c', contactId: 'ok', at: 'bad' }, { id: 'd' }, { id: 'e', contactId: 'ok', at: '2026-03-01T09:00' }];
+  const m = msg({ contacts: c, scheduled: sch }, makeDb());
+  assert.ok(m.includes('送信予約4件（宛先の顧客がいない1件／顧客IDが重複していて宛先を特定できない1件／日時が読めない1件／形式が読めない1件）'));
+  assert.ok(m.includes('送信予約：2件 → 1件'));
 });
 
 // ---------- 小さな補助関数 ----------

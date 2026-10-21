@@ -80,33 +80,60 @@ test('exportJSON: 書き出した内容を parseBackup で読み戻すと元に�
   assert.equal(r.report.skipped.scheduled.total, 0);
 });
 
-// ---------- S1 では復元の実動作を変えない ----------
-// 以下の2件は S1 時点の既存挙動の固定。S2 で復元を作り直すときに、意図した変更として更新する。
-test('S1: 既存の JSON 復元は、v2 の封筒を読み込めないものとして断る（保存値は変わらない）', () => {
+// ---------- S2 の小さな変更 ----------
+test('toast: 長い文は表示時間を延ばす（15字以下は 2 秒・上限 8 秒）', () => {
   const app = loadApp({ seed: makeDb() });
-  const { file } = exported(app);
-  const before = plain(app.run('db'));
-  const sets = app.log.sets;
-  app.pickRestoreFile(file.text);
-  assert.match(lastToast(app), /読み込めませんでした/);
-  assert.deepEqual(plain(app.run('db')), before);
-  assert.equal(app.log.sets, sets, '保存値を書き換えない');
-  assert.equal(app.log.confirms.length, 0);
+  const delay = (m) => { app.log.delays.length = 0; app.call('toast', m); return app.log.delays[0]; };
+  assert.equal(delay('保存しました'), 2000);
+  assert.equal(delay('あ'.repeat(15)), 2000);
+  assert.equal(delay('あ'.repeat(20)), 3000);
+  assert.equal(delay('あ'.repeat(40)), 6000);
+  assert.equal(delay('あ'.repeat(100)), 8000);
+  assert.equal(delay('あ'), 2000);
+  app.log.delays.length = 0; app.call('toast', 'あ', 500);
+  assert.equal(app.log.delays[0], 500, 'ms を渡せばそのとおり');
 });
 
-test('S1: 既存の JSON 復元は旧形式をこれまでどおり読む', () => {
+test('.ics: CR・CRLF・LF はどれも \\n にエスケープされ、行が増えない。通常の本文は従来どおり', () => {
   const app = loadApp({ seed: makeDb() });
-  const sets = app.log.sets;
-  app.pickRestoreFile(JSON.stringify(legacyGenerations().gen4));
-  assert.equal(app.log.confirms.length, 1);
-  assert.match(lastToast(app), /復元しました/);
-  assert.equal(app.run('db.contacts.length'), 2);
-  assert.equal(app.log.sets, sets + 1, '復元は保存値を1回書く');
-  const stored = JSON.parse(app.store.get(KEY));
-  assert.equal(stored.contacts.length, 2);
-  assert.equal(stored.settings.apiKey, DUMMY_KEY, '既存の復元はファイルのキーを書き戻す（S2 で「現在のキーを保つ」に変える）');
-  assert.equal(stored.settings.myCards[0].label, '屋号A');
-  assert.equal(stored.settings.model, 'claude-opus-4-8');
+  const ics = (title, desc) => { app.call('downloadICS', title, '2026-03-01T09:00', desc); const d = app.log.downloads; return d[d.length - 1].text; };
+  const text = ics('名前\rATTENDEE:mailto:x@example.invalid', '本文\rBEGIN:VALARM\r\nACTION:EMAIL\nURL:x');
+  const lines = text.split('\r\n');
+  lines.forEach((l) => assert.equal(/[\r\n]/.test(l), false, '行の中に改行が残らない'));
+  assert.equal(lines.length, 16, '通常の .ics と同じ行数');
+  assert.ok(lines.includes('SUMMARY:名前\\nATTENDEE:mailto:x@example.invalid'));
+  assert.ok(lines.includes('DESCRIPTION:本文\\nBEGIN:VALARM\\nACTION:EMAIL\\nURL:x'));
+  const plainText = ics('タイトル', '一行目\n二行目;三,四\\');
+  assert.ok(plainText.split('\r\n').includes('DESCRIPTION:一行目\\n二行目\\;三\\,四\\\\'), '既存のエスケープは不変');
+});
+
+test('normalizeSettings(d): 引数のオブジェクトを整える。引数なしは従来どおり db を整える', () => {
+  const app = loadApp({ seed: makeDb() });
+  const d = { contacts: [] };
+  app.call('normalizeSettings', d);
+  assert.equal(d.settings.model, 'claude-opus-4-8');
+  assert.deepEqual(plain(d.scheduled), []);
+  assert.ok(Array.isArray(d.settings.myCards) && Array.isArray(d.settings.templates));
+  assert.equal(d.settings.templatesV, 3);
+  app.run('db.scheduled=undefined;db.settings.myName=null');
+  app.call('normalizeSettings');
+  assert.deepEqual(plain(app.run('db.scheduled')), []);
+  assert.equal(app.run('db.settings.myName'), '');
+});
+
+test('S2: sanitizeContact は削除した。str は変更しない（呼び出しが無くなっても残す）', () => {
+  const app = loadApp({ seed: makeDb() });
+  assert.equal(app.run('typeof sanitizeContact'), 'undefined');
+  assert.equal(app.run('typeof str'), 'function');
+  assert.equal(app.run('str(5)'), '5');
+  assert.equal(app.run('str(null)'), '');
+});
+
+test('exportJSON: 書き出した時点の保存値を exportedRaw に記録する（書き出し操作をしたという目印。保存完了の証拠ではない）', () => {
+  const app = loadApp({ seed: makeDb() });
+  assert.equal(app.run('exportedRaw'), null);
+  app.run('exportJSON()');
+  assert.equal(app.run('exportedRaw'), app.store.get(KEY));
 });
 
 // ---------- 静的な確認 ----------
@@ -115,10 +142,12 @@ const count = (src, re) => (src.match(re) || []).length;
 test('静的: 外部通信・CSP・localStorage の使い方が増えていない', () => {
   const src = readIndex();
   assert.equal(count(src, /\bfetch\(/g), 1, 'fetch は callClaude の 1 か所だけ');
-  // S2 で復元の書込み・読み戻し・exportedRaw などで localStorage を読み書きするときは、この個数を意図して更新する。
-  assert.equal(count(src, /localStorage\.getItem\(/g), 1);
+  // 読むのは load() と readRaw()（復元・exportedRaw・戻すが使う）、書くのは save() だけ。復元の書き込みは commitRaw（storage を引数で受ける）経由。
+  // S3 で load()/save() を作り直すときは、この個数を意図して更新する。
+  assert.equal(count(src, /localStorage\.getItem\(/g), 2);
   assert.equal(count(src, /localStorage\.setItem\(/g), 1);
-  assert.equal(count(src, /localStorage\s*[.\[]/g), 2, 'localStorage に触るのは load() と save() だけ（getItem と setItem）');
+  assert.equal(count(src, /localStorage\s*[.\[]/g), 3, 'localStorage を直接触るのは load()・readRaw()・save() だけ');
+  assert.equal(count(src, /commitRaw\(localStorage,KEY,/g), 2, '復元と戻す操作の書き込みだけが commitRaw を使う');
   assert.equal(count(src, /sessionStorage|indexedDB|document\.cookie|location\.(href|assign|replace)|\bimport\(/g), 0);
   assert.equal(count(src, /window\.open\(/g), 1, 'LINE 共有の 1 か所だけ');
   assert.equal(count(src, /XMLHttpRequest|WebSocket|sendBeacon|importScripts|<iframe|<img[^>]+src=["']https?:/g), 0);
@@ -126,7 +155,7 @@ test('静的: 外部通信・CSP・localStorage の使い方が増えていな�
   assert.ok(src.includes(`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.anthropic.com; img-src 'self' data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`), 'CSP を変えていない');
 });
 
-test('静的: S1 は load() / save() を変えていない（S3 で意図して変えるときはこのテストを更新する）', () => {
+test('静的: load() / save() を変えていない（S3 で意図して変えるときはこのテストを更新する）', () => {
   const src = readIndex();
   assert.ok(src.includes('function load(){\n  try{const r=JSON.parse(localStorage.getItem(KEY)); if(r&&r.contacts) return r;}catch(e){}\n  return {contacts:[], settings:{apiKey:"",model:"claude-opus-4-8"}};\n}'));
   assert.ok(src.includes('function save(){try{localStorage.setItem(KEY, JSON.stringify(db));return true;}catch(e){toast("保存できませんでした（容量オーバー等）");return false;}}'));
