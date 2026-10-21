@@ -242,7 +242,7 @@
         </select>
       </div>
       <button class="btn primary" id="btnSaveKey">保存</button>
-      <p class="warn" style="margin-top:12px">キーはこの端末のブラウザ内（localStorage）にのみ保存され、Claude以外には送信しません。共有端末では使用後に「キー削除」を。</p>
+      <p class="warn" style="margin-top:12px">キーはこの端末のブラウザ内（localStorage）にのみ保存され、Claude以外には送信しません。共有端末では使用後に「キー削除」を。このバージョンで書き出すJSONにはキーを含みません（以前に書き出したファイルには入っていることがあります）。別の端末や、ブラウザのデータを消した後は、設定で入力し直してください。</p>
       <p class="muted" style="margin-top:8px">キー取得: <span style="user-select:all">console.anthropic.com</span></p>
     </div>
 
@@ -280,7 +280,7 @@
         <a onclick="exportCSV()">CSV書き出し</a>
         <a onclick="document.getElementById('impCsv').click()">CSV取込</a>
       </div>
-      <p class="muted" style="margin:6px 0 0">CSVは名刺情報のみ（接点・タグは含まず）。完全な保存はJSONバックアップを。</p>
+      <p class="muted" style="margin:6px 0 0">CSVは名刺情報のみ（接点・タグは含まず）。全体の書き出しはJSONバックアップで。このバージョンの書き出しにAPIキーは含みませんが、顧客情報が入るため保管にご注意ください。</p>
       <div class="quick" style="margin-top:8px">
         <a onclick="document.getElementById('impVcf').click()">📇 vCard(.vcf)取込</a>
       </div>
@@ -1007,10 +1007,124 @@ document.getElementById("btnSaveTpl").onclick=()=>{
 document.getElementById("btnDelKey").onclick=()=>{if(!confirm("APIキーを削除しますか？"))return;db.settings.apiKey="";save();syncSettings();toast("削除しました");};
 document.getElementById("btnWipe").onclick=()=>{if(!confirm("全ての連絡先とデータを削除します。よろしいですか？"))return;db={contacts:[],settings:db.settings};save();renderHome();renderList();toast("削除しました");};
 
+/* ============ backup core: DOM・localStorage に触れない関数（tests/ が index.html のこのブロックを直接取り出して検証する） ============ */
+/* ===== backup-core ===== */
+// 連絡先に項目を足すときは cleanContact の項目も更新する（未知の項目は整形で捨てる）。
+function isObj(v){return v!==null&&typeof v==="object"&&!Array.isArray(v);}
+function textOf(v){return typeof v==="string"?v:(typeof v==="number"||typeof v==="boolean")?String(v):"";}
+// id は /^[\w-]{1,64}$/ で未重複なら保持し、欠落・不正・重複のときだけ新しく振る。
+function keepId(raw,used,mk){
+  let id=typeof raw==="string"?raw:"";
+  if(!/^[\w-]{1,64}$/.test(id)||used.has(id)){mk=mk||uid;let n=0;do{id=mk()+(n?"_"+n:"");n++;}while(used.has(id));}
+  used.add(id);return id;
+}
+// x={mk:新idの作り方, nowIso:既定の登録日時, st:除外・付け直しの件数}
+function cleanContact(c,used,x){
+  const raw=Array.isArray(c.touchpoints)?c.touchpoints:[],tps=raw.filter(isObj),tu=new Set(),f=k=>textOf(c[k]);
+  x.st.touchpoints+=raw.length-tps.length;
+  return {id:keepId(c.id,used,x.mk),company:f("company"),name:f("name"),kana:f("kana"),title:f("title"),tel:f("tel"),fax:f("fax"),mobile:f("mobile"),email:f("email"),address:f("address"),url:f("url"),prairie:f("prairie"),persona:f("persona"),
+    category:c.category===undefined?"見込み客":f("category"),referrer:f("referrer"),memo:f("memo"),metDate:f("metDate"),metReason:f("metReason"),metNotes:f("metNotes"),metNeeds:f("metNeeds"),metNext:f("metNext"),
+    tags:Array.isArray(c.tags)?c.tags.map(textOf).filter(t=>t!==""):[],
+    createdAt:c.createdAt===undefined?x.nowIso:f("createdAt"),
+    touchpoints:tps.map(t=>{const id=keepId(t.id,tu,x.mk);if(id!==t.id)x.st.regen.touchpoints++;
+      return {id,type:textOf(t.type),date:textOf(t.date),note:textOf(t.note),nextAction:textOf(t.nextAction),nextDate:textOf(t.nextDate),done:t.done===true};})};
+}
+// 戻り値 kind: "v2"（format＋version===2）／"legacy"（format 無し＋contacts 配列＝従来の書き出し）／"future"（version が 2 より大きい）／"unknown"
+function detectBackup(root){
+  if(!isObj(root))return {kind:"unknown"};
+  if(root.format!==undefined){
+    if(root.format!=="meishi-crm-backup")return {kind:"unknown"};
+    if(root.version===2)return isObj(root.data)&&Array.isArray(root.data.contacts)?{kind:"v2",data:root.data}:{kind:"unknown"};
+    return {kind:typeof root.version==="number"&&root.version>2?"future":"unknown"};
+  }
+  return Array.isArray(root.contacts)?{kind:"legacy",data:root}:{kind:"unknown"};
+}
+function summarizeDb(d){
+  const cs=Array.isArray(d&&d.contacts)?d.contacts:[],s=isObj(d&&d.settings)?d.settings:{};
+  return {contacts:cs.length,touchpoints:cs.reduce((n,c)=>n+(isObj(c)&&Array.isArray(c.touchpoints)?c.touchpoints.length:0),0),scheduled:Array.isArray(d&&d.scheduled)?d.scheduled.length:0,templates:Array.isArray(s.templates)?s.templates.length:0,personas:Array.isArray(s.myCards)?s.myCards.length:0};
+}
+// 書き出し用 v2 封筒。settings は許可リスト方式で、apiKey は入れない。id は変えない。
+function buildBackup(d,nowIso){
+  const s=isObj(d&&d.settings)?d.settings:{};
+  return {format:"meishi-crm-backup",version:2,exportedAt:nowIso,data:{contacts:Array.isArray(d&&d.contacts)?d.contacts:[],scheduled:Array.isArray(d&&d.scheduled)?d.scheduled:[],
+    settings:{model:s.model,myName:s.myName,myCards:s.myCards,templates:s.templates,templatesV:s.templatesV}}};
+}
+// バックアップの文字列を検証・整形して、復元候補を作る（副作用なし）。ctx={nowIso, newId, currentSettings}
+// 失敗: {ok:false, reason:"badjson"|"notbackup"|"unsupported"|"nocontacts"}（reason は内部用の符号）
+// 成功: {ok:true, kind, db:{contacts,settings,scheduled}, report}。設定は currentSettings が土台で、ファイルにある有効な項目だけ上書きする。APIキーはファイルから読まない。
+function parseBackup(text,ctx){
+  ctx=ctx||{};
+  if(typeof text!=="string")return {ok:false,reason:"badjson"};
+  let root;try{root=JSON.parse(text.replace(/^\uFEFF/,""));}catch(e){return {ok:false,reason:"badjson"};}
+  const det=detectBackup(root);
+  if(det.kind==="future")return {ok:false,reason:"unsupported"};
+  if(det.kind==="unknown")return {ok:false,reason:"notbackup"};
+  const d=det.data,mk=ctx.newId||uid,nowIso=ctx.nowIso||new Date().toISOString();
+  const st={contacts:0,touchpoints:0,personas:0,templates:0,sched:{malformed:0,ambiguous:0,orphan:0,badAt:0},regen:{contacts:0,touchpoints:0,scheduled:0,personas:0,templates:0}},x={mk,nowIso,st};
+  const arr=d.contacts,objs=arr.filter(isObj);
+  if(arr.length>0&&objs.length===0)return {ok:false,reason:"nocontacts"};
+  st.contacts=arr.length-objs.length;
+  // 連絡先 id: 旧→新の対応表。旧 id が複数の連絡先で重複していると、予約の宛先を特定できない。
+  const cnt=new Map(),used=new Set(),idMap=new Map(),dup=new Set();
+  objs.forEach(o=>{if(typeof o.id==="string")cnt.set(o.id,(cnt.get(o.id)||0)+1);});
+  const contacts=objs.map(o=>{
+    const c=cleanContact(o,used,x);
+    if(c.id!==o.id)st.regen.contacts++;
+    if(typeof o.id==="string"){if(cnt.get(o.id)===1)idMap.set(o.id,c.id);else dup.add(o.id);}
+    return c;
+  });
+  const su=new Set(),scheduled=[];
+  (Array.isArray(d.scheduled)?d.scheduled:[]).forEach(s=>{
+    if(!isObj(s)||typeof s.contactId!=="string"){st.sched.malformed++;return;}
+    if(dup.has(s.contactId)){st.sched.ambiguous++;return;}
+    if(!idMap.has(s.contactId)){st.sched.orphan++;return;}
+    const at=textOf(s.at);
+    if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)){st.sched.badAt++;return;}
+    const id=keepId(s.id,su,mk);if(id!==s.id)st.regen.scheduled++;
+    scheduled.push({id,contactId:idMap.get(s.contactId),channel:s.channel==="line"?"line":"email",subject:textOf(s.subject),body:textOf(s.body),at,done:s.done===true});
+  });
+  const fset=isObj(d.settings)?d.settings:{},cur=isObj(ctx.currentSettings)?ctx.currentSettings:{},set=JSON.parse(JSON.stringify(cur));
+  set.apiKey=typeof cur.apiKey==="string"?cur.apiKey:"";
+  if(typeof fset.model==="string"&&fset.model)set.model=fset.model;
+  if(typeof fset.myName==="string")set.myName=fset.myName;
+  if(Array.isArray(fset.myCards)){
+    const pu=new Set();set.myCards=[];
+    fset.myCards.forEach(p=>{
+      const label=isObj(p)?textOf(p.label):"";
+      if(label===""){st.personas++;return;}
+      const id=keepId(p.id,pu,mk);if(id!==p.id)st.regen.personas++;
+      set.myCards.push({id,label,prairie:textOf(p.prairie)});
+    });
+  }
+  let tplAdopted=false,tplSkippedOld=false;
+  if(Array.isArray(fset.templates)){
+    if(typeof fset.templatesV==="number"&&isFinite(fset.templatesV)&&fset.templatesV>=3){
+      const tu=new Set();set.templates=[];
+      fset.templates.forEach(t=>{
+        if(!isObj(t)){st.templates++;return;}
+        const id=keepId(t.id,tu,mk);if(id!==t.id)st.regen.templates++;
+        set.templates.push({id,channel:t.channel==="line"?"line":"email",name:textOf(t.name)||"（無題）",subject:textOf(t.subject),body:textOf(t.body)});
+      });
+      set.templatesV=fset.templatesV;tplAdopted=true;
+    }else tplSkippedOld=true; // 旧形式（templatesV が 3 未満・無し）のテンプレートは読まず、現在のものを残す
+  }
+  const out={contacts,settings:set,scheduled},sc=st.sched;
+  return {ok:true,kind:det.kind,db:out,report:{
+    kind:det.kind,
+    exportedAt:det.kind==="v2"&&typeof root.exportedAt==="string"&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(root.exportedAt)?root.exportedAt:"",
+    counts:summarizeDb(out),
+    realContacts:contacts.filter(c=>c.name||c.company||c.email||c.tel||c.mobile).length,
+    skipped:{contacts:st.contacts,touchpoints:st.touchpoints,personas:st.personas,templates:st.templates,scheduled:{malformed:sc.malformed,ambiguous:sc.ambiguous,orphan:sc.orphan,badAt:sc.badAt,total:sc.malformed+sc.ambiguous+sc.orphan+sc.badAt}},
+    regenerated:st.regen,
+    fileHadKey:typeof fset.apiKey==="string"&&fset.apiKey!=="",
+    templatesAdopted:tplAdopted,templatesSkippedOld:tplSkippedOld}};
+}
+/* ===== /backup-core ===== */
+
 /* ============ backup / import ============ */
 document.getElementById("btnBackup").onclick=exportJSON;
 function download(name,text,type){const b=new Blob([text],{type:type||"application/octet-stream"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
-function exportJSON(){download(`meishi-crm_${todayStr()}.json`,JSON.stringify(db,null,2),"application/json");toast("バックアップしました");}
+function exportJSON(){download(`meishi-crm_${todayStr()}.json`,JSON.stringify(buildBackup(db,new Date().toISOString()),null,2),"application/json");toast("書き出しました（顧客情報を含みます）");}
 document.getElementById("impJson").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.contacts))throw 0;if(!confirm("現在のデータを置き換えます。よろしいですか？"))return;const s=d.settings||{};const cards=Array.isArray(s.myCards)?s.myCards.map(p=>({id:uid(),label:str(p&&p.label),prairie:str(p&&p.prairie)})).filter(p=>p.label):undefined;const tpls=Array.isArray(s.templates)?s.templates.map(t=>({id:uid(),channel:(t&&t.channel==="line")?"line":"email",name:str(t&&t.name)||"（無題）",subject:str(t&&t.subject),body:str(t&&t.body)})):undefined;db={contacts:d.contacts.map(sanitizeContact),settings:{apiKey:str(s.apiKey),model:str(s.model)||"claude-opus-4-8",myName:str(s.myName),myCards:cards,templates:tpls}};normalizeSettings();save();syncSettings();renderHome();renderList();toast("復元しました");}catch(_){toast("読み込めませんでした");}};r.readAsText(f);e.target.value="";});
 
 const CSV_COLS=[["company","会社名"],["name","氏名"],["title","役職"],["tel","代表電話"],["fax","FAX"],["mobile","携帯電話"],["email","メール"],["address","住所"],["url","URL"],["prairie","プレーリーURL"],["persona","立場"],["category","カテゴリ"],["referrer","紹介元"],["memo","メモ"],["createdAt","記録日時"]];
